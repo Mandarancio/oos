@@ -206,6 +206,44 @@ impl Ui {
     }
 }
 
+/// The bandwidth test: the step response of the front end. A procedure: not over SCPI :VIEW, not kept in setups.
+pub(super) struct BandwidthPage;
+
+impl super::analysers::Analyser for BandwidthPage {
+    fn view(&self) -> AView {
+        AView::Step
+    }
+
+    fn feature(&self) -> (&'static str, &'static str) {
+        ("bwtest", "Bandwidth test")
+    }
+
+    fn name(&self) -> &'static str {
+        "Bandwidth test"
+    }
+
+    fn menu(&self) -> MenuId {
+        MenuId::BwTest
+    }
+
+    fn stored(&self) -> bool {
+        false
+    }
+
+    /// Identify (what is connected to the inputs) sits beside it in the start menu.
+    fn start(&self) -> Vec<Item> {
+        vec![Item::Open(MenuId::BwTest), Item::IdentifyAct]
+    }
+
+    fn update(&self, ui: &mut Ui, rec: &Record, _pane: bool) {
+        ui.bw_update(rec);
+    }
+
+    fn draw(&self, ui: &Ui, cv: &mut Canvas) {
+        ui.draw_bw(cv);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

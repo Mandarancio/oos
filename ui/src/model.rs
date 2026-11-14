@@ -322,6 +322,12 @@ pub enum AView {
     Dpt,
 }
 
+impl AView {
+    /// Every view (the tests check each analyser page against it).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub const ALL: [AView; 9] = [AView::Scope, AView::Spectrum, AView::Eye, AView::Power, AView::Bode, AView::Step, AView::Magnetic, AView::Inverter, AView::Dpt];
+}
+
 /// Where the eye is drawn. The full page is the default. Side and Under are extra panes and leave that page available.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EyePlace {

@@ -80,6 +80,8 @@ Protocol decoders that come as modules (`ui/src/protocols`, [protocol-modules.md
 menu rows, trigger rules, labels, demo traffic and an optional view of their own through one trait, `Protocol`.
 Measurements come the same way (`ui/src/measures`, [measurement-modules.md](measurement-modules.md)): a
 `MeasModule` gives its tiles on the measurement page and computes its values on the catalog worker thread.
+Analyser pages implement `Analyser` (`ui/src/ui/analysers.rs`, [analyser-modules.md](analyser-modules.md)): the start
+menu, System > Features, the view bar, SCPI `:VIEW`, setups, the record and the drawing ask that registry.
 
 Everything the UI asks of the hardware goes through the trait `board::Board` (`ui/src/board/mod.rs`): what the
 acquisition thread is to apply, the generator, the front-end steps, the front panel, the board readings. The UI speaks

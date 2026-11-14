@@ -10,6 +10,7 @@ use crate::model::*;
 use crate::wave::*;
 use crate::board::{board, Board};
 
+mod analysers;
 mod analysis;
 mod measure_pairs;
 mod bus;
@@ -280,6 +281,8 @@ pub const PAIRS_N: usize = tools::PAIRS.len();
 pub fn pair_short_name(k: usize) -> &'static str {
     tools::PAIRS[k.min(PAIRS_N - 1)].0
 }
+
+pub(crate) use analysers::{scpi_views, stored_views};
 
 /// Clock recovery of the eye for the measurement modules: samples per UI and the recovered clock.
 pub fn eye_infer(v: &[f32], dt: f64, rate: Option<f64>) -> Result<(f64, oos_dsp::eye::Clock), String> {
@@ -642,7 +645,7 @@ enum Item {
     Dots,
     /// Display > Bottom bar: Cards or Compact (`Model::bar_compact`)
     BottomBar,
-    /// System > Features: one row per feature of `features::FEATURES`, one per decoder of `PROTOS`
+    /// System > Features: one row per feature of `features::features()`, one per decoder of `PROTOS`
     FeatOn(usize),
     FeatDec(usize),
     /// Display > Monitor view (ui/monitor.rs)
@@ -5879,8 +5882,9 @@ impl Ui {
             disp.extend([NavBack, NavFwd]);
         }
         // System > Features: what is left out is not offered
-        let ana: Vec<Item> = [Open(MenuId::Spectrum), Open(MenuId::Eye), Open(MenuId::Power), Open(MenuId::Bode), Open(MenuId::BwTest), IdentifyAct, Open(MenuId::Magnetic), Open(MenuId::Inverter), Open(MenuId::Dpt)]
-            .into_iter()
+        let ana: Vec<Item> = analysers::ANALYSERS
+            .iter()
+            .flat_map(|a| a.start())
             .filter(|it| !matches!(it, Open(m) if self.menu_left_out(*m)))
             .collect();
         // the generator page only on models with one (S models), the LA only with the port

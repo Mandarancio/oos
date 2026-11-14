@@ -486,3 +486,40 @@ fn pad(lo: f64, hi: f64) -> (f64, f64) {
     let p = (hi - lo) * 0.08;
     (lo - p, hi + p)
 }
+
+/// The magnetic page (B-H loop, inductance, core loss).
+pub(super) struct MagneticPage;
+
+impl super::analysers::Analyser for MagneticPage {
+    fn view(&self) -> AView {
+        AView::Magnetic
+    }
+
+    fn feature(&self) -> (&'static str, &'static str) {
+        ("magnetic", "Magnetic")
+    }
+
+    fn name(&self) -> &'static str {
+        "Magnetic"
+    }
+
+    fn menu(&self) -> MenuId {
+        MenuId::Magnetic
+    }
+
+    fn scpi(&self) -> Option<&'static str> {
+        Some("MAGnetic")
+    }
+
+    fn without_record(&self, _ui: &Ui) -> bool {
+        true
+    }
+
+    fn update(&self, ui: &mut Ui, rec: &Record, _pane: bool) {
+        ui.magnetic_update(rec);
+    }
+
+    fn draw(&self, ui: &Ui, cv: &mut Canvas) {
+        ui.draw_magnetic(cv);
+    }
+}

@@ -1829,11 +1829,11 @@ impl Scpi {
         }
         // OOS extensions: analyser view, Identify, self-calibration, Bode
         if kw(n0, "VIEW") && nodes.len() == 1 {
-            const VIEWS: [(&str, AView); 8] = [("SCOPe", AView::Scope), ("SPECtrum", AView::Spectrum), ("EYE", AView::Eye), ("POWer", AView::Power), ("BODE", AView::Bode), ("MAGnetic", AView::Magnetic), ("INVerter", AView::Inverter), ("DPT", AView::Dpt)];
+            let views = crate::ui::scpi_views();
             if query {
                 return t(&format!("{:?}", ui.m.view).to_ascii_uppercase());
             }
-            match VIEWS.iter().find(|(k, _)| kw(arg, k)) {
+            match views.iter().find(|(k, _)| kw(arg, k)) {
                 Some((_, v)) => ui.set_analysis_view(*v),
                 None => self.push_err(format!("-224,\"Illegal parameter value\" {}", arg)),
             }

@@ -1478,6 +1478,48 @@ fn blit_hits(cv: &mut Canvas, r: Rect, img: &[u32], iw: usize) {
     cv.image(r, &px, true);
 }
 
+/// The eye page (eye diagram, jitter, the charts).
+pub(super) struct EyePage;
+
+impl super::analysers::Analyser for EyePage {
+    fn view(&self) -> AView {
+        AView::Eye
+    }
+
+    fn feature(&self) -> (&'static str, &'static str) {
+        ("eye", "Eye")
+    }
+
+    fn name(&self) -> &'static str {
+        "Eye / jitter"
+    }
+
+    fn menu(&self) -> MenuId {
+        MenuId::Eye
+    }
+
+    fn scpi(&self) -> Option<&'static str> {
+        Some("EYE")
+    }
+
+    fn more(&self, _ui: &Ui) -> Vec<Item> {
+        vec![Item::EyeClear]
+    }
+
+    fn without_record(&self, ui: &Ui) -> bool {
+        let is_ref = |id: WaveId| matches!(id, WaveId::Ref(_));
+        is_ref(ui.m.eye_src) || ui.m.eye_b.is_some_and(is_ref) || ui.m.eye_rail.is_some_and(is_ref)
+    }
+
+    fn update(&self, ui: &mut Ui, rec: &Record, _pane: bool) {
+        ui.eye_update(rec);
+    }
+
+    fn draw(&self, ui: &Ui, cv: &mut Canvas) {
+        ui.draw_eye(cv);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -75,7 +75,7 @@ pub struct SysConf {
     pub gpu: bool,
     /// Display > Backlight, percent (ui/backlight.rs)
     pub backlight: u32,
-    /// System > Features: what is left out of the menus and pages (ids of `ui::features::FEATURES`, `features.off`), and
+    /// System > Features: what is left out of the menus and pages (ids of `ui::features::features()`, `features.off`), and
     /// the decoders left out (protocol keys, `decoders.off`); nothing is left out by default
     pub features_off: Vec<String>,
     pub decoders_off: Vec<String>,

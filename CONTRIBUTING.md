@@ -25,7 +25,7 @@ usually in `oos-dsp`. [docs/protocol-modules.md](docs/protocol-modules.md) walks
 
 Measurements come as a measurement module: a file in `ui/src/measures` with their tiles and their computation, one
 line to register it, the signal processing usually in `oos-dsp`. [docs/measurement-modules.md](docs/measurement-modules.md)
-walks through it.
+walks through it. An analyser page registers the same way ([docs/analyser-modules.md](docs/analyser-modules.md)).
 
 ## Before a pull request
 

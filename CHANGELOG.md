@@ -23,6 +23,10 @@ New:
   magnetics, motor, double pulse ...), the standard and pair measurements are placed by two more. Their values are
   bit for bit the same; every module is checked by the tests (numbers, names, places, a square wave through
   `compute`).
+- Analyser pages register the same way (`ui/src/ui/analysers.rs`, docs/analyser-modules.md): the start menu, System
+  > Features, the view bar and its menu, SCPI `:VIEW`, the `view` of setups, which record a page needs, computing and
+  drawing ask one registry instead of eight lists. Every page is checked the same way by the tests; the pages look
+  and compute as before, pixel for pixel.
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`

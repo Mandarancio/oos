@@ -907,6 +907,35 @@ impl Ui {
     }
 }
 
+/// The Bode page: a frequency sweep of the generator (it runs on its own, not from a record).
+pub(super) struct BodePage;
+
+impl super::analysers::Analyser for BodePage {
+    fn view(&self) -> AView {
+        AView::Bode
+    }
+
+    fn feature(&self) -> (&'static str, &'static str) {
+        ("bode", "Bode")
+    }
+
+    fn name(&self) -> &'static str {
+        "Bode plot"
+    }
+
+    fn menu(&self) -> MenuId {
+        MenuId::Bode
+    }
+
+    fn scpi(&self) -> Option<&'static str> {
+        Some("BODE")
+    }
+
+    fn draw(&self, ui: &Ui, cv: &mut Canvas) {
+        ui.draw_bode(cv);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
