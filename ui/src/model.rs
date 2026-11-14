@@ -435,10 +435,7 @@ pub enum Proto {
     I2s,
     Mil1553,
     Parallel,
-    CanFd,
-    FlexRay,
     Arinc429,
-    Sent,
     /// USB 1.x / 2.0 low / full speed
     Usb,
     /// MIPI C-PHY: A/B/C electrical states and synchronized 16-bit words.
@@ -448,10 +445,9 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 14] = [
-    Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel, Proto::CanFd,
-    Proto::FlexRay,
-    Proto::Arinc429, Proto::Sent, Proto::Usb,
+pub const BUILTIN_PROTOS: [Proto; 11] = [
+    Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel,
+    Proto::Arinc429, Proto::Usb,
     Proto::Cphy,
 ];
 
@@ -491,10 +487,7 @@ impl Proto {
             Proto::I2s => "I2S",
             Proto::Mil1553 => "1553",
             Proto::Parallel => "Parallel",
-            Proto::CanFd => "CAN-FD",
-            Proto::FlexRay => "FlexRay",
             Proto::Arinc429 => "ARINC 429",
-            Proto::Sent => "SENT",
             Proto::Usb => "USB",
             Proto::Cphy => "C-PHY",
         }
@@ -518,7 +511,7 @@ impl Proto {
         if let Some(p) = self.module() {
             return p.diff_ok();
         }
-        matches!(self, Proto::Uart | Proto::Can | Proto::CanFd | Proto::FlexRay | Proto::Lin | Proto::Arinc429)
+        matches!(self, Proto::Uart | Proto::Can | Proto::Lin | Proto::Arinc429)
     }
 }
 
@@ -2185,22 +2178,16 @@ impl Model {
     pub fn bus_bit(&self) -> f64 {
         match self.dec_proto {
             Proto::Uart | Proto::Lin => 1.0 / crate::decode::BAUDS[self.dec_baud],
-            Proto::Can | Proto::CanFd => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
+            Proto::Can => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
             Proto::I2c => 2.5e-6,
             Proto::Spi | Proto::Parallel => 0.5e-6,
             Proto::I2s => 0.6e-6,
             Proto::Mil1553 => 1e-6,
-            Proto::FlexRay => 0.1e-6,
             Proto::Module(i) => crate::protocols::get(i).bit_time(&self.dec_opts()),
             // auto: high speed (the finer sampling)
             Proto::Arinc429 => {
                 let r = crate::decode::ARINC_RATES[self.dec_arate];
                 1.0 / if r > 0.0 { r } else { crate::decode::ARINC_RATES[2] }
-            }
-            // about 4 ticks per data bit; auto: the shortest tick
-            Proto::Sent => {
-                let t = crate::decode::SENT_TICKS[self.dec_tick];
-                4.0 * if t > 0.0 { t } else { crate::decode::SENT_TICKS[0] }
             }
             // auto: full speed
             Proto::Usb => {

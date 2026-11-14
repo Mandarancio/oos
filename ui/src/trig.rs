@@ -80,15 +80,9 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
             let lines: Vec<&[f32]> = (0..NCH).map(|k| (m.dec_src + k) % NCH).filter(|&c| Some(c) != clk).take(m.dec_bits.clamp(1, 4) as usize).map(get).collect::<Result<_, _>>()?;
             x1::parallel(&lines, opt(clk)?, oos_dsp::trigger::Slope::Rising, thr, hy)
         }
-        Proto::CanFd => x1::can_fd(line, dt, can_rate, crate::decode::FD_RATES[m.dec_fdrate], thr, hy, m.dec_canh),
-        Proto::FlexRay => x1::flexray(line, dt, 10e6, thr, hy, false),
         Proto::Arinc429 => {
             let r = crate::decode::ARINC_RATES[m.dec_arate];
             x3::arinc429(line, dt, if r > 0.0 { Some(r) } else { None }, thr, hy)
-        }
-        Proto::Sent => {
-            let t = crate::decode::SENT_TICKS[m.dec_tick];
-            x3::sent(get(m.dec_src)?, dt, if t > 0.0 { Some(t) } else { None }, m.dec_nibbles as usize, thr, hy)
         }
         // D- optional (D+ alone: no SE0)
         Proto::Usb => x3::usb(get(m.dec_src)?, opt(m.dec_cs)?, dt, crate::decode::USB_SPEEDS[m.dec_uspeed], thr, hy),

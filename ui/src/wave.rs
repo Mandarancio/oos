@@ -178,7 +178,6 @@ struct ExtDemo {
 }
 
 fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
-    use oos_dsp::decode_ext::gen as g1;
     use oos_dsp::decode_ext3::gen as g3;
     static L: std::sync::OnceLock<Vec<(Proto, ExtDemo)>> = std::sync::OnceLock::new();
     let all = L.get_or_init(|| {
@@ -188,14 +187,6 @@ fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
             ExtDemo { a, b, period }
         };
         let mut v = Vec::new();
-        let fd = g1::FdFrame { id: 0x123, ext: false, fd: true, brs: true, esi: false, data: (1..=12).collect() };
-        v.push((Proto::CanFd, mk(g1::can_fd_logic(&[fd], 500e3, 2e6, 0.0, 3.3), None, 40e-6)));
-        // FlexRay 10 Mbit/s on RxD: a static frame with 8 payload bytes
-        let fr = g1::FrFrame { ppi: false, nf: true, sync: false, startup: false, id: 0x2a, cycle: 5, payload: vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88], channel_b: false };
-        v.push((Proto::FlexRay, mk(oos_dsp::sim::bits_logic(&g1::flexray_bits(&fr, 11), 1e-7, 20, 0.0, 3.3), None, 10e-6)));
-        // SENT 3 us tick, 5 V: two fast-channel frames of 6 data nibbles with a pause pulse
-        let sf = |status: u8, data: [u8; 6]| g3::SentFrame { status, data: data.to_vec(), crc: None, pause: 40 };
-        v.push((Proto::Sent, mk(g3::sent(&[sf(0x0, [0x7, 0xf, 0x3, 0x8, 0x0, 0xc]), sf(0x4, [0x7, 0xf, 0x4, 0x8, 0x0, 0xb])], 3e-6, 0.0, 5.0), None, 0.0)));
         // USB full speed, D+ on CH3, D- on CH4: SOF; SETUP GET_DESCRIPTOR(device) to address 5, ACK; IN, the first 8
         // bytes of the device descriptor in DATA1, ACK
         let fs = oos_dsp::decode_ext3::USB_FULL;

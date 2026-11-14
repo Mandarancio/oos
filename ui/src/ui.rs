@@ -257,15 +257,6 @@ const ARATE_NAMES: [&str; 3] = ["Auto", "12.5 k", "100 k"];
 /// Options of the USB speed (decode::USB_SPEEDS).
 const USPEED_NAMES: [&str; 3] = ["Auto", "Low 1.5M", "Full 12M"];
 
-/// A SENT clock tick (0 = Auto).
-fn tick_name(t: f64) -> String {
-    if t > 0.0 {
-        si_short(t, "s")
-    } else {
-        "Auto".into()
-    }
-}
-
 /// Longest record the web page takes as CSV (about 50 MB of text).
 const WEB_CSV_MAX: usize = 2_000_000;
 
@@ -439,10 +430,7 @@ enum Item {
     DecBaud,
     DecCanRate,
     DecCanH,
-    DecFdRate,
     DecArate,
-    DecTick,
-    DecNibbles,
     DecUsbSpeed,
     /// option row `k` of a protocol module
     DecOpt(usize),
@@ -6211,11 +6199,9 @@ impl Ui {
             Proto::Uart => v.extend([DecBaud, DecBits, DecParity, DecFmt]),
             Proto::Spi => v.extend([DecMode, DecBits]),
             Proto::Can => v.extend([DecCanRate, DecCanH]),
-            Proto::CanFd => v.extend([DecCanRate, DecFdRate, DecCanH]),
             Proto::Lin => v.push(DecBaud),
             Proto::I2s | Proto::Parallel => v.push(DecBits),
             Proto::Arinc429 => v.push(DecArate),
-            Proto::Sent => v.extend([DecTick, DecNibbles]),
             Proto::Usb => v.push(DecUsbSpeed),
             Proto::Cphy => v.push(DecCphyRate),
             Proto::Module(_) => v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt)),
@@ -6286,10 +6272,6 @@ impl Ui {
             Proto::Arinc429 => {
                 (m.dec_src, m.dec_thr) = (2, 2.5);
             }
-            // 5 V logic
-            Proto::Sent => {
-                (m.dec_src, m.dec_thr) = (2, 2.5);
-            }
             // demo: D+ on CH3, D- on CH4, 3.3 V
             Proto::Usb => {
                 (m.dec_src, m.dec_cs, m.dec_thr) = (2, Some(3), 1.65);
@@ -6309,7 +6291,6 @@ impl Ui {
                     }
                 }
             }
-            _ => m.dec_src = 2,
         }
         m.ch[2.min(NCH - 1)].on = true;
         if matches!(p, Proto::I2c | Proto::Spi) {
@@ -6526,10 +6507,8 @@ impl Ui {
                 Proto::I2c => (BusWhat::Id, 0x50),
                 Proto::Mil1553 => (BusWhat::Id, 0x0c23),
                 Proto::I2s => (BusWhat::Data, 0x7fff),
-                Proto::FlexRay => (BusWhat::Id, 0x2a),
                 // label 310 (octal)
                 Proto::Arinc429 => (BusWhat::Id, 0o310),
-                Proto::Sent => (BusWhat::Data, 0x7f480b),
                 // the demo device's address
                 Proto::Usb => (BusWhat::Id, 5),
                 Proto::Module(i) => crate::protocols::get(i).trigger_default(),
@@ -6773,10 +6752,7 @@ impl Ui {
             Item::I2cAddrBits => "Address",
             Item::I2cBytes => "Bytes",
             Item::DecCanH => "Signal",
-            Item::DecFdRate => "Data rate",
             Item::DecArate => "Bit rate",
-            Item::DecTick => "Clock tick",
-            Item::DecNibbles => "Data nibbles",
             Item::DecUsbSpeed => "Speed",
             Item::DecOpt(_) => "Option",
             Item::DecSrc4 => "Source 4",
@@ -7139,10 +7115,7 @@ impl Ui {
             Item::TrigBusVal => format!("0x{:X}", m.trig_bus_val),
             Item::SerRel | Item::SerMax | Item::SerMask | Item::UartPol | Item::UartStop | Item::UartErr | Item::SpiCs | Item::SpiTimeout | Item::I2cDir | Item::I2cAddrBits | Item::I2cBytes => self.serial_value(it),
             Item::DecCanH => if m.dec_canh { "CAN_H".into() } else { "RX/TX".into() },
-            Item::DecFdRate => format!("{} M", crate::decode::FD_RATES[m.dec_fdrate] / 1e6),
             Item::DecArate => ARATE_NAMES[m.dec_arate].into(),
-            Item::DecTick => tick_name(crate::decode::SENT_TICKS[m.dec_tick]),
-            Item::DecNibbles => format!("{}", m.dec_nibbles),
             Item::DecUsbSpeed => USPEED_NAMES[m.dec_uspeed].into(),
             Item::DecSrc4 => m.dec_src4.map_or("None".into(), decode_source_name),
             Item::DecDiff => m.dec_diff.map_or("None".into(), decode_source_name),
@@ -7664,10 +7637,7 @@ impl Ui {
                     self.set_dec_proto(p);
                 }
             }
-            Item::DecFdRate => self.m.dec_fdrate = cyc(self.m.dec_fdrate, crate::decode::FD_RATES.len(), d),
             Item::DecArate => self.m.dec_arate = cyc(self.m.dec_arate, crate::decode::ARINC_RATES.len(), d),
-            Item::DecTick => self.m.dec_tick = step(self.m.dec_tick, crate::decode::SENT_TICKS.len(), d),
-            Item::DecNibbles => self.m.dec_nibbles = (self.m.dec_nibbles as i32 + d).clamp(1, 6) as u32,
             Item::DecUsbSpeed => self.m.dec_uspeed = cyc(self.m.dec_uspeed, crate::decode::USB_SPEEDS.len(), d),
             Item::DecOpt(k) => {
                 if let Some(o) = self.m.dec_proto.module().and_then(|p| p.options().get(k)) {
@@ -8367,10 +8337,7 @@ impl Ui {
             }
             Item::WinModeI => &["Enter", "Exit", "Inside"],
             Item::DecProto => return self.protos_on().iter().map(|p| p.name().to_string()).collect(),
-            Item::DecFdRate => &["1 M", "2 M", "4 M", "5 M", "8 M"],
             Item::DecArate => &ARATE_NAMES,
-            Item::DecTick => return crate::decode::SENT_TICKS.iter().map(|&t| tick_name(t)).collect(),
-            Item::DecNibbles => &["1", "2", "3", "4", "5", "6"],
             Item::DecUsbSpeed => &USPEED_NAMES,
             Item::DecOpt(k) => return self.m.dec_proto.module().and_then(|p| p.options().get(k)).map_or(Vec::new(), |o| o.choices.iter().map(|c| c.to_string()).collect()),
             Item::DecSrc4 | Item::DecDiff => return std::iter::once("None".into()).chain(self.decoder_sources().into_iter().map(decode_source_name)).collect(),
@@ -10163,8 +10130,6 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
                 Kind::Addr { read } => format!("{} {}{}", hex(p.value), if read { "R" } else { "W" }, if p.ok { "" } else { " N" }),
                 // ARINC 429 label in octal; SENT tick and data nibbles
                 Kind::Id { .. } if m.dec_proto == Proto::Arinc429 => format!("L {:03o}", p.value),
-                Kind::Field("SYNC") if m.dec_proto == Proto::Sent => format!("SYNC {}{}", si(p.value as f64 * 1e-9, "s"), if p.ok { "" } else { " !" }),
-                Kind::Data if m.dec_proto == Proto::Sent => format!("{:0w$X}", p.value, w = p.value2.unwrap_or(1) as usize),
                 // USB: the speed of the SYNC, PID names, bytes
                 Kind::Field("SYNC") if m.dec_proto == Proto::Usb => format!("SYNC {}{}", if p.value >= 12000 { "FS" } else { "LS" }, if p.ok { "" } else { " !" }),
                 Kind::Field("PID") if m.dec_proto == Proto::Usb && p.ok => oos_dsp::decode_ext3::usb_pid_name(p.value as u8).to_string(),
@@ -11034,23 +10999,21 @@ mod tests {
     fn bus_trigger_on_arinc_sent_and_flexray() {
         use super::*;
         use oos_dsp::decode::Kind;
-        for (proto, tdiv) in [(Proto::Arinc429, 100e-6f32), (Proto::Sent, 200e-6), (Proto::FlexRay, 5e-6)] {
+        let k = |s: &str| Proto::from_key(s).unwrap();
+        let (arinc, sent) = (k("Arinc429"), k("Sent"));
+        for (proto, tdiv) in [(arinc, 100e-6f32), (sent, 200e-6), (k("FlexRay"), 5e-6)] {
             let tsc = tscales().iter().position(|&t| (t - tdiv).abs() < tdiv * 1e-3).unwrap();
             let tol = 3.0 * tdiv as f64 * HDIV as f64 / 3600.0; // three record samples
             for what in [BusWhat::Id, BusWhat::Data, BusWhat::Frame, BusWhat::Error] {
                 let mut ui = Ui::new(Source::Demo { t: 0.0 });
-                ui.m.dec_proto = proto;
+                ui.set_dec_proto(proto);
                 ui.set_trig_type(TrigType::Bus);
                 let id_default = ui.m.trig_bus_val;
                 ui.m.trig_bus = what;
                 // a payload value of the demo traffic
                 if what == BusWhat::Data {
-                    ui.m.trig_bus_val = match proto {
-                        Proto::Arinc429 => 0x2_5a5a,
-                        Proto::Sent => 0x7f_480b,
-                        _ => 0x55,
-                    };
-                } else if what == BusWhat::Id && proto == Proto::Sent {
+                    ui.m.trig_bus_val = if proto == arinc { 0x2_5a5a } else if proto == sent { 0x7f_480b } else { 0x55 };
+                } else if what == BusWhat::Id && proto == sent {
                     ui.m.trig_bus_val = 0x4; // status nibble of the second frame
                 }
                 ui.m.trig_mode = TrigMode::Normal;
@@ -11065,8 +11028,8 @@ mod tests {
                 assert!(ui.last[0].as_ref().is_some_and(|r| r.triggered), "{:?} {:?}: not triggered", proto, what);
                 let p = ui.decode_packets().unwrap();
                 assert!(crate::trig::points(&ui.m, &p).iter().any(|t| t.abs() < tol), "{:?} {:?}: no matching field ends at 0: {:?}", proto, what, p);
-                if what == BusWhat::Id && proto != Proto::Sent {
-                    let want = if proto == Proto::Arinc429 { 0o310 } else { 0x2a };
+                if what == BusWhat::Id && proto != sent {
+                    let want = if proto == arinc { 0o310 } else { 0x2a };
                     assert_eq!(id_default, want);
                     assert!(p.iter().any(|x| matches!(x.kind, Kind::Id { .. }) && x.value as u64 == want && x.t1.abs() < tol));
                 }
@@ -11075,7 +11038,7 @@ mod tests {
                     ui.render(&mut cv);
                     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-shots");
                     let _ = std::fs::create_dir_all(&dir);
-                    let _ = crate::store::write(&dir.join(format!("j-bus-{:?}.png", proto).to_lowercase()), &crate::store::png_of(&cv));
+                    let _ = crate::store::write(&dir.join(format!("j-bus-{}.png", proto.key()).to_lowercase()), &crate::store::png_of(&cv));
                 }
             }
         }
@@ -11205,7 +11168,7 @@ mod tests {
         let m = |k: &str| Proto::from_key(k).unwrap();
         let cases: [(Proto, f32, &str); 14] = [
             (m("Dcc"), 10e-3, "PRE"),
-            (Proto::CanFd, 50e-6, "BRS"),
+            (m("CanFd"), 50e-6, "BRS"),
             (m("Dmx512"), 100e-6, "SC"),
             (m("ModbusRtu"), 1e-3, "FUNC"),
             (m("Uart9"), 1e-3, "Addr"),
@@ -11214,9 +11177,9 @@ mod tests {
             (m("Swd"), 20e-6, "REQ"),
             (m("Spdif"), 20e-6, "Sample"),
             (m("Example"), 1e-3, "Data"),
-            (Proto::FlexRay, 5e-6, "HCRC"),
+            (m("FlexRay"), 5e-6, "HCRC"),
             (Proto::Arinc429, 100e-6, "SSM"),
-            (Proto::Sent, 200e-6, "STAT"),
+            (m("Sent"), 200e-6, "STAT"),
             (Proto::Usb, 5e-6, "ENDP"),
         ];
         for (p, tdiv, want) in cases {
@@ -11335,7 +11298,7 @@ mod tests {
         ui.activate(Item::IdentifyAct);
         shot(&mut ui, "identify");
         ui.close_menu();
-        ui.set_dec_proto(Proto::CanFd);
+        ui.set_dec_proto(Proto::from_key("CanFd").unwrap());
         ui.m.dec_on = true;
         ui.m.math = MathOp::Off;
         ui.m.math_select(0);
@@ -11403,7 +11366,7 @@ mod tests {
         }
         same(&mut ui, "eye");
         ui.m.view = AView::Scope;
-        ui.set_dec_proto(Proto::CanFd);
+        ui.set_dec_proto(Proto::from_key("CanFd").unwrap());
         ui.m.dec_on = true;
         for _ in 0..5 {
             ui.step(0.05);

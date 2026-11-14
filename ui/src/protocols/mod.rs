@@ -29,6 +29,7 @@ mod qspi;
 mod serial;
 mod spdif;
 mod usbpd;
+mod vehicle;
 
 /// The registered modules. The order is the order in the Decode menu, after the built-in protocols. Never reuse or
 /// change a module's `key`: saved setups refer to it.
@@ -48,6 +49,9 @@ pub static MODULES: &[&dyn Protocol] = &[
     &debug::Jtag,
     &qspi::Qspi,
     &i3c::I3c,
+    &vehicle::CanFd,
+    &vehicle::FlexRay,
+    &vehicle::Sent,
     #[cfg(test)]
     &example::Example,
 ];
@@ -69,6 +73,7 @@ pub struct Legacy {
     pub bits: u32,
     pub parity: oos_dsp::decode::Parity,
     pub canrate: usize,
+    pub canh: bool,
     pub fdrate: usize,
     pub arate: usize,
     pub tick: usize,
