@@ -7296,18 +7296,24 @@ fn axis_label(v: f32, step: f32, base: f32, span: f32, unit: &str) -> String {
     let a = span.abs().max(step.abs()) as f64;
     let (mult, p) = prefixes.iter().copied().find(|(m, _)| a >= *m * 0.9995).unwrap_or((1e-12, "p"));
     let st = (step as f64 / mult).abs();
-    let needed = |x: f64| {
+    // decimals that show `x` (a step or the base): a whole number of the last digit, not 0 (a step of 0.001 ms is not
+    // "0"), at most `max`: 6 for the step (a delay of seconds at a time base of microseconds), 3 for the base (an
+    // offset dragged to 1.454545 V shows as 1.455)
+    let needed = |x: f64, max: i32| {
+        if x < 1e-12 {
+            return 0;
+        }
         let mut dec = 0;
-        while dec < 3 {
+        while dec < max {
             let k = x * 10f64.powi(dec);
-            if (k.round() - k).abs() < 1e-3 {
+            if k.round() >= 1.0 && (k.round() - k).abs() < 1e-3 {
                 break;
             }
             dec += 1;
         }
         dec
     };
-    let dec = needed(st).max(needed((base as f64 / mult).abs()));
+    let dec = needed(st, 6).max(needed((base as f64 / mult).abs(), 3));
     let x = v as f64 / mult;
     let x = if x.abs() < st * 1e-3 { 0.0 } else { x };
     format!("{:.*} {}{}", dec as usize, x, p, unit)
@@ -8555,6 +8561,15 @@ mod tests {
         assert_eq!(axis_label(-0.6, 0.2, 0.0, 0.8, "V"), "-600 mV");
         assert_eq!(axis_label(3.25, 2.0, 4.75, 12.75, "V"), "3.25 V");
         assert_eq!(axis_label(-1e-9, 2.0, 0.0, 8.0, "V"), "0 V");
+        // 1 us/div at a delay of 3 ms: every label its own (was "3 ms" each)
+        assert_eq!(axis_label(3.001e-3, 1e-6, 3e-3, 3.005e-3, "s"), "3.001 ms");
+        assert_eq!(axis_label(2.996e-3, 1e-6, 3e-3, 3.005e-3, "s"), "2.996 ms");
+        assert_eq!(axis_label(0.2e-6, 0.1e-6, 0.0, 0.5e-6, "s"), "200 ns");
+        // an offset of 1.481 V: the labels keep its three decimals
+        assert_eq!(axis_label(1.519, 1.0, 1.481, 4.481, "V"), "1.519 V");
+        assert_eq!(axis_label(1.545455, 1.0, 1.454545, 4.454545, "V"), "1.545 V");
+        // 1 us/div at a delay of 1 s
+        assert_eq!(axis_label(1.000002, 1e-6, 1.0, 1.000005, "s"), "1.000002 s");
     }
 }
 
