@@ -37,7 +37,7 @@ pub fn decode_la(m: &Model, words: &[u16], dt: f64) -> Result<Vec<Packet>, &'sta
 
 /// `decode` with the threshold and hysteresis given.
 pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32) -> Result<Vec<Packet>, &'static str> {
-    use oos_dsp::decode::{can, i2c, i2s, lin, mil1553, spi, uart};
+    use oos_dsp::decode::{can, i2c, i2s, lin, spi, uart};
     use oos_dsp::{decode_ext as x1, decode_ext3 as x3};
     let get = |c: usize| ch.get(c).copied().filter(|v| !v.is_empty()).ok_or("source channel off");
     let opt = |c: Option<usize>| -> Result<Option<&[f32]>, &'static str> { c.map(get).transpose() };
@@ -73,16 +73,11 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         Proto::Can => can(line, dt, can_rate, thr, hy, m.dec_canh),
         Proto::Lin => lin(line, dt, baud, thr, hy),
         Proto::I2s => i2s(get(m.dec_src2)?, opt(m.dec_cs)?, get(m.dec_src)?, m.dec_bits, thr, hy),
-        Proto::Mil1553 => mil1553(get(m.dec_src)?, dt, thr, hy),
         Proto::Parallel => {
             // dec_bits data lines from the main source upwards, skipping the clock
             let clk = m.dec_cs;
             let lines: Vec<&[f32]> = (0..NCH).map(|k| (m.dec_src + k) % NCH).filter(|&c| Some(c) != clk).take(m.dec_bits.clamp(1, 4) as usize).map(get).collect::<Result<_, _>>()?;
             x1::parallel(&lines, opt(clk)?, oos_dsp::trigger::Slope::Rising, thr, hy)
-        }
-        Proto::Arinc429 => {
-            let r = crate::decode::ARINC_RATES[m.dec_arate];
-            x3::arinc429(line, dt, if r > 0.0 { Some(r) } else { None }, thr, hy)
         }
         // D- optional (D+ alone: no SE0)
         Proto::Usb => x3::usb(get(m.dec_src)?, opt(m.dec_cs)?, dt, crate::decode::USB_SPEEDS[m.dec_uspeed], thr, hy),
@@ -119,8 +114,6 @@ pub fn matches(m: &Model, p: &Packet) -> bool {
             Kind::Start | Kind::Break | Kind::Word { cmd: true } => true,
             Kind::Data => matches!(m.dec_proto, Proto::Uart | Proto::Spi | Proto::Parallel),
             Kind::Sample { right: false } => true,
-            // an ARINC 429 word starts with its label
-            Kind::Id { .. } => m.dec_proto == Proto::Arinc429,
             // the first field of a frame of the extended decoders
             Kind::Field(l) => matches!(l, "!RESET" | "PRE" | "TSS" | "CMD" | "REQ" | "BLK" | "IR" | "DR" | "SYNC"),
             _ => false,

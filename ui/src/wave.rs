@@ -238,25 +238,6 @@ fn demo_i2s() -> &'static (oos_dsp::sim::Logic, oos_dsp::sim::Logic, oos_dsp::si
     L.get_or_init(|| oos_dsp::sim::i2s_logic(&[(0x1234, -0x1234), (0x4000, -0x4000), (0x7fff, 0x0001), (0, -1)], 16, 48e3, 0.0, 3.3))
 }
 
-/// Demo MIL-STD-1553 traffic: a command word and three data words, +-7 V bus.
-fn demo_1553() -> &'static oos_dsp::sim::Levels {
-    static L: std::sync::OnceLock<oos_dsp::sim::Levels> = std::sync::OnceLock::new();
-    L.get_or_init(|| oos_dsp::sim::mil1553_wave(&[(true, 0x0c23), (false, 0xbeef), (false, 0x1234), (false, 0x00ff)], 7.0, 4.0))
-}
-
-/// Demo ARINC 429 traffic (high speed, one line against ground: +-5 V): three words, 8 bit times apart; and the
-/// repeat period.
-fn demo_arinc() -> &'static (oos_dsp::sim::Levels, f64) {
-    use oos_dsp::decode_ext3::gen;
-    static L: std::sync::OnceLock<(oos_dsp::sim::Levels, f64)> = std::sync::OnceLock::new();
-    L.get_or_init(|| {
-        let w = [gen::arinc429_word(0o203, 0, 0x0_2710, 3, false), gen::arinc429_word(0o310, 1, 0x2_5a5a, 3, false), gen::arinc429_word(0o206, 0, 0x0_1388, 0, false)];
-        let l = gen::arinc429(&w, 100e3, 5.0, 8);
-        let end = l.seg.last().map_or(1e-3, |s| s.0);
-        (l, end)
-    })
-}
-
 /// Demo LIN traffic (19200 baud, 12 V bus scaled to 3.3 V): one frame with enhanced checksum.
 fn demo_lin() -> &'static oos_dsp::sim::Logic {
     static L: std::sync::OnceLock<oos_dsp::sim::Logic> = std::sync::OnceLock::new();
@@ -274,9 +255,7 @@ fn demo_signal(cfg: DemoCfg, ch: usize, t: f64) -> f64 {
         (Some(Proto::I2s), 0) => return demo_i2s().1.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
         (Some(Proto::I2s), 1) => return demo_i2s().2.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
         (Some(Proto::I2s), 2) => return demo_i2s().0.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
-        (Some(Proto::Mil1553), 2) => return demo_1553().v(t.rem_euclid(120e-6)),
         (Some(Proto::Lin), 2) => return demo_lin().v(t.rem_euclid(12e-3)),
-        (Some(Proto::Arinc429), 2) => return demo_arinc().0.v(t.rem_euclid(demo_arinc().1)),
         (Some(Proto::I2c), 2) => return demo_bus().0.v(t.rem_euclid(200e-6)),
         (Some(Proto::I2c), 3) => return demo_bus().1.v(t.rem_euclid(200e-6)),
         (Some(Proto::Spi), 1) => return demo_bus().2[0].v(t.rem_euclid(50e-6)),

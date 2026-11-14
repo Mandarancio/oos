@@ -17,6 +17,7 @@
 use crate::model::{BusWhat, Slope};
 use oos_dsp::decode::Packet;
 
+mod avionics;
 mod dcc;
 mod debug;
 mod dmx512;
@@ -52,6 +53,8 @@ pub static MODULES: &[&dyn Protocol] = &[
     &vehicle::CanFd,
     &vehicle::FlexRay,
     &vehicle::Sent,
+    &avionics::Arinc429,
+    &avionics::Mil1553,
     #[cfg(test)]
     &example::Example,
 ];
@@ -124,13 +127,26 @@ pub struct Setup {
     pub la: [Option<u8>; 4],
     /// decision threshold (V)
     pub thr: f32,
+    /// a trigger that holds the demo traffic still, set when the protocol is chosen; `None` leaves the trigger alone
+    pub trig: Option<DemoTrig>,
 }
 
 impl Default for Setup {
-    /// Main line on CH3 and a second one on CH4, 3.3 V logic; the demo UART line D8 and clock D10 for the LA.
+    /// Main line on CH3 and a second one on CH4, 3.3 V logic; the demo UART line D8 and clock D10 for the LA; the
+    /// trigger as it is.
     fn default() -> Setup {
-        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65 }
+        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65, trig: None }
     }
+}
+
+/// The trigger of [`Setup::trig`]: an edge of `slope` on the channel of role `role` at `level` (V). With an `idle` time
+/// (s) only the first edge after the line was quiet that long (Nth edge, n = 1), else every edge (Edge).
+#[derive(Clone, Copy, Debug)]
+pub struct DemoTrig {
+    pub role: usize,
+    pub slope: Slope,
+    pub idle: f32,
+    pub level: f32,
 }
 
 /// A line of demo traffic: voltage at time `t` (s) within one period.

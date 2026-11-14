@@ -251,9 +251,6 @@ pub mod key {
     pub const TLEVEL_CW: u8 = 0xea;
 }
 
-/// Options of the ARINC 429 bit rate (decode::ARINC_RATES).
-const ARATE_NAMES: [&str; 3] = ["Auto", "12.5 k", "100 k"];
-
 /// Options of the USB speed (decode::USB_SPEEDS).
 const USPEED_NAMES: [&str; 3] = ["Auto", "Low 1.5M", "Full 12M"];
 
@@ -430,7 +427,6 @@ enum Item {
     DecBaud,
     DecCanRate,
     DecCanH,
-    DecArate,
     DecUsbSpeed,
     /// option row `k` of a protocol module
     DecOpt(usize),
@@ -4320,8 +4316,8 @@ impl Ui {
             let Some(source) = decode_wave(m.dec_src) else { cv.no_clip(); return; };
             let ty = self.y_of_wave(source, m.dec_thr);
             cv.dashed_hline(a.x + 26, a.x + a.w - 26, ty, 2, 6, scale(col, 160));
-            if m.dec_proto == Proto::Arinc429 {
-                // the LO level
+            if m.dec_proto.module().is_some_and(|p| p.key() == "Arinc429") {
+                // the LO level of ARINC 429
                 let ty = self.y_of_wave(source, -m.dec_thr);
                 cv.dashed_hline(a.x + 26, a.x + a.w - 26, ty, 2, 6, scale(col, 160));
             }
@@ -6201,7 +6197,6 @@ impl Ui {
             Proto::Can => v.extend([DecCanRate, DecCanH]),
             Proto::Lin => v.push(DecBaud),
             Proto::I2s | Proto::Parallel => v.push(DecBits),
-            Proto::Arinc429 => v.push(DecArate),
             Proto::Usb => v.push(DecUsbSpeed),
             Proto::Cphy => v.push(DecCphyRate),
             Proto::Module(_) => v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt)),
@@ -6256,10 +6251,6 @@ impl Ui {
                 m.ch[0].on = true;
                 m.ch[1].on = true;
             }
-            // bipolar bus: threshold at 0 V
-            Proto::Mil1553 => {
-                (m.dec_src, m.dec_thr) = (2, 0.0);
-            }
             Proto::Parallel => {
                 (m.dec_src, m.dec_bits, m.dec_cs) = (0, 3, Some(3));
                 for channel in &mut m.ch { channel.on = true; }
@@ -6267,10 +6258,6 @@ impl Ui {
             Proto::Cphy => {
                 (m.dec_src, m.dec_src2, m.dec_cs, m.dec_thr, m.dec_bits) = (0, 1, Some(2), 0.02, 16);
                 m.dec_la_in = false;
-            }
-            // demo: one ARINC 429 line against ground (+-5 V), HI / LO at +-2.5 V
-            Proto::Arinc429 => {
-                (m.dec_src, m.dec_thr) = (2, 2.5);
             }
             // demo: D+ on CH3, D- on CH4, 3.3 V
             Proto::Usb => {
@@ -6323,11 +6310,22 @@ impl Ui {
             Proto::I2s => {
                 (m.trig_type, m.trig_src, m.slope, m.trig_level) = (TrigType::Edge, 0, Slope::Fall, 1.65);
             }
-            Proto::Mil1553 => {
-                (m.trig_type, m.trig_src, m.slope, m.nth_idle, m.nth_n, m.trig_level) = (TrigType::NthEdge, 2, Slope::Rise, 3e-6, 1, 2.0);
-            }
             Proto::Can | Proto::Lin => {
                 (m.trig_type, m.trig_src, m.slope, m.nth_idle, m.nth_n, m.trig_level) = (TrigType::NthEdge, 2, Slope::Fall, 20e-6, 1, 1.65);
+            }
+            // a module: the trigger of its setup, on the channel of the role
+            Proto::Module(i) => {
+                if let Some(t) = crate::protocols::get(i).setup().trig {
+                    let c = [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][t.role.min(3)];
+                    if let Some(c) = c.filter(|&c| c < NCH) {
+                        (m.trig_src, m.slope, m.trig_level) = (c, t.slope, t.level);
+                        if t.idle > 0.0 {
+                            (m.trig_type, m.nth_idle, m.nth_n) = (TrigType::NthEdge, t.idle, 1);
+                        } else {
+                            m.trig_type = TrigType::Edge;
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -6505,10 +6503,7 @@ impl Ui {
                 Proto::Can => (BusWhat::Id, 0x123),
                 Proto::Lin => (BusWhat::Id, 0x21),
                 Proto::I2c => (BusWhat::Id, 0x50),
-                Proto::Mil1553 => (BusWhat::Id, 0x0c23),
                 Proto::I2s => (BusWhat::Data, 0x7fff),
-                // label 310 (octal)
-                Proto::Arinc429 => (BusWhat::Id, 0o310),
                 // the demo device's address
                 Proto::Usb => (BusWhat::Id, 5),
                 Proto::Module(i) => crate::protocols::get(i).trigger_default(),
@@ -6752,7 +6747,6 @@ impl Ui {
             Item::I2cAddrBits => "Address",
             Item::I2cBytes => "Bytes",
             Item::DecCanH => "Signal",
-            Item::DecArate => "Bit rate",
             Item::DecUsbSpeed => "Speed",
             Item::DecOpt(_) => "Option",
             Item::DecSrc4 => "Source 4",
@@ -7115,7 +7109,6 @@ impl Ui {
             Item::TrigBusVal => format!("0x{:X}", m.trig_bus_val),
             Item::SerRel | Item::SerMax | Item::SerMask | Item::UartPol | Item::UartStop | Item::UartErr | Item::SpiCs | Item::SpiTimeout | Item::I2cDir | Item::I2cAddrBits | Item::I2cBytes => self.serial_value(it),
             Item::DecCanH => if m.dec_canh { "CAN_H".into() } else { "RX/TX".into() },
-            Item::DecArate => ARATE_NAMES[m.dec_arate].into(),
             Item::DecUsbSpeed => USPEED_NAMES[m.dec_uspeed].into(),
             Item::DecSrc4 => m.dec_src4.map_or("None".into(), decode_source_name),
             Item::DecDiff => m.dec_diff.map_or("None".into(), decode_source_name),
@@ -7637,7 +7630,6 @@ impl Ui {
                     self.set_dec_proto(p);
                 }
             }
-            Item::DecArate => self.m.dec_arate = cyc(self.m.dec_arate, crate::decode::ARINC_RATES.len(), d),
             Item::DecUsbSpeed => self.m.dec_uspeed = cyc(self.m.dec_uspeed, crate::decode::USB_SPEEDS.len(), d),
             Item::DecOpt(k) => {
                 if let Some(o) = self.m.dec_proto.module().and_then(|p| p.options().get(k)) {
@@ -8337,7 +8329,6 @@ impl Ui {
             }
             Item::WinModeI => &["Enter", "Exit", "Inside"],
             Item::DecProto => return self.protos_on().iter().map(|p| p.name().to_string()).collect(),
-            Item::DecArate => &ARATE_NAMES,
             Item::DecUsbSpeed => &USPEED_NAMES,
             Item::DecOpt(k) => return self.m.dec_proto.module().and_then(|p| p.options().get(k)).map_or(Vec::new(), |o| o.choices.iter().map(|c| c.to_string()).collect()),
             Item::DecSrc4 | Item::DecDiff => return std::iter::once("None".into()).chain(self.decoder_sources().into_iter().map(decode_source_name)).collect(),
@@ -10128,8 +10119,6 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
     let hex = |v: u32| if m.dec_bits > 8 { format!("{:04X}", v) } else { format!("{:02X}", v) };
             match p.kind {
                 Kind::Addr { read } => format!("{} {}{}", hex(p.value), if read { "R" } else { "W" }, if p.ok { "" } else { " N" }),
-                // ARINC 429 label in octal; SENT tick and data nibbles
-                Kind::Id { .. } if m.dec_proto == Proto::Arinc429 => format!("L {:03o}", p.value),
                 // USB: the speed of the SYNC, PID names, bytes
                 Kind::Field("SYNC") if m.dec_proto == Proto::Usb => format!("SYNC {}{}", if p.value >= 12000 { "FS" } else { "LS" }, if p.ok { "" } else { " !" }),
                 Kind::Field("PID") if m.dec_proto == Proto::Usb && p.ok => oos_dsp::decode_ext3::usb_pid_name(p.value as u8).to_string(),
@@ -11178,7 +11167,7 @@ mod tests {
             (m("Spdif"), 20e-6, "Sample"),
             (m("Example"), 1e-3, "Data"),
             (m("FlexRay"), 5e-6, "HCRC"),
-            (Proto::Arinc429, 100e-6, "SSM"),
+            (m("Arinc429"), 100e-6, "SSM"),
             (m("Sent"), 200e-6, "STAT"),
             (Proto::Usb, 5e-6, "ENDP"),
         ];
@@ -11518,30 +11507,34 @@ mod tests {
     fn i2s_and_1553_decode_the_demo() {
         use super::*;
         use oos_dsp::decode::Kind;
-        for (proto, tdiv) in [(Proto::I2s, 10e-6f32), (Proto::Mil1553, 20e-6)] {
+        for (key, tdiv) in [("I2s", 10e-6f32), ("Mil1553", 20e-6)] {
+            let proto = Proto::from_key(key).unwrap();
             let mut ui = Ui::new(Source::Demo { t: 0.0 });
             ui.m.dec_on = true;
             ui.set_dec_proto(proto);
+            // the trigger that holds the demo still: I2S the falling WS edge on CH1, 1553 the first rising edge after
+            // 3 us of quiet bus on CH3
+            let m = &ui.m;
+            let want = if key == "I2s" { (TrigType::Edge, 0, Slope::Fall, 1.65) } else { (TrigType::NthEdge, 2, Slope::Rise, 2.0) };
+            assert_eq!((m.trig_type, m.trig_src, m.slope, m.trig_level), want, "{}", key);
+            assert!(key == "I2s" || (m.nth_idle, m.nth_n) == (3e-6, 1));
             ui.m.tscale = tscales().iter().position(|&t| (t - tdiv).abs() < tdiv * 1e-3).unwrap();
             for _ in 0..20 {
                 ui.step(1.0 / 30.0);
             }
             let p = ui.decode_packets().unwrap();
-            match proto {
-                Proto::I2s => {
-                    let s: Vec<(bool, u32)> = p.iter().filter_map(|x| if let Kind::Sample { right } = x.kind { Some((right, x.value)) } else { None }).collect();
-                    assert!(s.contains(&(false, 0x4000)) && s.contains(&(true, 0xc000)), "{:x?}", s);
-                }
-                _ => {
-                    let w: Vec<(bool, u32, bool)> = p.iter().filter_map(|x| if let Kind::Word { cmd } = x.kind { Some((cmd, x.value, x.ok)) } else { None }).collect();
-                    assert!(w.contains(&(true, 0x0c23, true)) && w.contains(&(false, 0xbeef, true)), "{:x?}", w);
-                }
+            if key == "I2s" {
+                let s: Vec<(bool, u32)> = p.iter().filter_map(|x| if let Kind::Sample { right } = x.kind { Some((right, x.value)) } else { None }).collect();
+                assert!(s.contains(&(false, 0x4000)) && s.contains(&(true, 0xc000)), "{:x?}", s);
+            } else {
+                let w: Vec<(bool, u32, bool)> = p.iter().filter_map(|x| if let Kind::Word { cmd } = x.kind { Some((cmd, x.value, x.ok)) } else { None }).collect();
+                assert!(w.contains(&(true, 0x0c23, true)) && w.contains(&(false, 0xbeef, true)), "{:x?}", w);
             }
             let mut cv = Canvas::new(PANEL_W, PANEL_H);
             ui.render(&mut cv);
             let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-shots");
             let _ = std::fs::create_dir_all(&dir);
-            let _ = crate::store::write(&dir.join(format!("i-{:?}.png", proto).to_lowercase()), &crate::store::png_of(&cv));
+            let _ = crate::store::write(&dir.join(format!("i-{}.png", key).to_lowercase()), &crate::store::png_of(&cv));
         }
     }
 

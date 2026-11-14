@@ -433,9 +433,7 @@ pub enum Proto {
     Can,
     Lin,
     I2s,
-    Mil1553,
     Parallel,
-    Arinc429,
     /// USB 1.x / 2.0 low / full speed
     Usb,
     /// MIPI C-PHY: A/B/C electrical states and synchronized 16-bit words.
@@ -445,9 +443,8 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 11] = [
-    Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel,
-    Proto::Arinc429, Proto::Usb,
+pub const BUILTIN_PROTOS: [Proto; 9] = [
+    Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Parallel, Proto::Usb,
     Proto::Cphy,
 ];
 
@@ -485,9 +482,7 @@ impl Proto {
             Proto::Can => "CAN",
             Proto::Lin => "LIN",
             Proto::I2s => "I2S",
-            Proto::Mil1553 => "1553",
             Proto::Parallel => "Parallel",
-            Proto::Arinc429 => "ARINC 429",
             Proto::Usb => "USB",
             Proto::Cphy => "C-PHY",
         }
@@ -511,7 +506,7 @@ impl Proto {
         if let Some(p) = self.module() {
             return p.diff_ok();
         }
-        matches!(self, Proto::Uart | Proto::Can | Proto::Lin | Proto::Arinc429)
+        matches!(self, Proto::Uart | Proto::Can | Proto::Lin)
     }
 }
 
@@ -2147,9 +2142,7 @@ impl Model {
             },
             TrigType::Timeout | TrigType::Duration => 3.0 * t(self.trig_t1.max(self.trig_t2)) + 6e-3,
             TrigType::NthEdge => 4.0 * t(self.nth_idle) + 2e-3,
-            // room for a whole frame of the protocol before the trigger point (ARINC 429 auto rate: a low-speed word;
-            // USB auto: low-speed packets)
-            TrigType::Bus if self.dec_proto == Proto::Arinc429 && self.dec_arate == 0 => 200.0 / crate::decode::ARINC_RATES[1],
+            // room for a whole frame of the protocol before the trigger point (USB auto: low-speed packets)
             TrigType::Bus if self.dec_proto == Proto::Usb && self.dec_uspeed == 0 => 200.0 / oos_dsp::decode_ext3::USB_LOW,
             TrigType::Bus => self.dec_proto.module().and_then(|p| p.frame_span(&self.dec_opts())).unwrap_or(200.0 * self.bus_bit()),
             TrigType::Edge | TrigType::Pattern => 0.0,
@@ -2182,13 +2175,7 @@ impl Model {
             Proto::I2c => 2.5e-6,
             Proto::Spi | Proto::Parallel => 0.5e-6,
             Proto::I2s => 0.6e-6,
-            Proto::Mil1553 => 1e-6,
             Proto::Module(i) => crate::protocols::get(i).bit_time(&self.dec_opts()),
-            // auto: high speed (the finer sampling)
-            Proto::Arinc429 => {
-                let r = crate::decode::ARINC_RATES[self.dec_arate];
-                1.0 / if r > 0.0 { r } else { crate::decode::ARINC_RATES[2] }
-            }
             // auto: full speed
             Proto::Usb => {
                 use oos_dsp::decode_ext3::{UsbSpeed, USB_FULL, USB_LOW};

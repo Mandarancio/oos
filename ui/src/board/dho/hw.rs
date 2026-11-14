@@ -147,9 +147,9 @@ pub fn settings(m: &Model, program_afe: bool) -> Settings {
         // LA line n: the stock source number 9 + n (trigger.md 2.2)
         trig_src: m.trig_line().or(bus_line(m)).map_or(src as u32 + 1, |n| 9 + n as u32),
         slope: match (m.trig_type, m.slope) {
-            // frames start with a falling edge (start bit, SOF, break, I2C start, CS); 1553, I2S and ARINC 429:
-            // either edge
-            (TrigType::Bus, _) if matches!(m.dec_proto, Proto::Mil1553 | Proto::I2s | Proto::Arinc429) => tpu::Slope::Either,
+            // frames start with a falling edge (start bit, SOF, break, I2C start, CS); I2S and the modules that say so
+            // (1553, ARINC 429): either edge
+            (TrigType::Bus, _) if m.dec_proto == Proto::I2s => tpu::Slope::Either,
             (TrigType::Bus, _) if m.dec_proto.module().is_some() => match m.dec_proto.module().map(|p| p.start_edge()) {
                 Some(Slope::Rise) => tpu::Slope::Rising,
                 Some(Slope::Either) => tpu::Slope::Either,
