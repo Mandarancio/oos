@@ -22,7 +22,7 @@ Tiers, in this order:
 A test that cannot run for lack of wiring is SKIP. A result that needs a decision is INFO. The results go to
 device-test/<time>/ as report.md, results.json and screenshots.
 
-It only talks to the published interfaces, plus read-only commands over key-authenticated SSH. shell() refuses everything
+It only talks to the published interfaces, plus read-only commands on the shell (telnet, or SSH with OOS_SHELL=ssh). shell() refuses everything
 that could write the FPGA flash, the calibration or the boot partitions, so a typo here cannot.
 """
 
@@ -197,18 +197,37 @@ class Scope:
                 f.write(b)
 
     def shell(self, cmd, wait=2.0, reads_card=False):
-        """A read-only command over SSH, with strict host identity checking."""
+        """A read-only command on the scope's shell, the output as text: telnet (the default, as the image starts it)
+        or, with OOS_SHELL=ssh, key-authenticated SSH with strict host identity checking (OOS_SSH_IDENTITY,
+        OOS_SSH_PORT)."""
         if self.sim:
             raise Skip("no shell in the simulation")
         if FORBIDDEN.search(cmd) and not reads_card:
             raise AssertionError(f"refused here: {cmd}")
-        args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                "-o", "ConnectTimeout=10", "-p", os.environ.get("OOS_SSH_PORT", "22")]
-        if os.environ.get("OOS_SSH_IDENTITY"):
-            args += ["-i", os.environ["OOS_SSH_IDENTITY"]]
-        result = subprocess.run(args + [f"root@{self.host}", cmd], capture_output=True,
-                                text=True, timeout=wait + 15, check=True)
-        return result.stdout.strip()
+        if os.environ.get("OOS_SHELL", "telnet") == "ssh":
+            args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+                    "-o", "ConnectTimeout=10", "-p", os.environ.get("OOS_SSH_PORT", "22")]
+            if os.environ.get("OOS_SSH_IDENTITY"):
+                args += ["-i", os.environ["OOS_SSH_IDENTITY"]]
+            result = subprocess.run(args + [f"root@{self.host}", cmd], capture_output=True,
+                                    text=True, timeout=wait + 15, check=True)
+            return result.stdout.strip()
+        s = socket.create_connection((self.host, 23), timeout=10)
+        time.sleep(1)
+        s.sendall(b"echo @@S; " + cmd.encode() + b"; echo @@E\n")
+        s.settimeout(wait + 8)
+        b, end = b"", time.time() + wait + 8
+        while b.count(b"@@E") < 2 and time.time() < end:
+            try:
+                c = s.recv(65536)
+            except socket.timeout:
+                break
+            if not c:
+                break
+            b += c
+        s.close()
+        t = b.decode(errors="replace")
+        return t.split("@@S", 2)[-1].split("@@E")[0].strip()
 
     def base(self):
         """Back to a known state: defaults, the waveform view, the generator's channel at 1 V/div, generator off, running."""

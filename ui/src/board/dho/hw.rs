@@ -1557,6 +1557,11 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
             let stop_view = out.lock().unwrap().stop_view;
             match stop_view {
                 Some(v) if mode == Slow::Off && want_mode == Slow::Off => {
+                    // a final-frame request of the UI while the views are read again: answered as the hold does
+                    {
+                        let mut g = out.lock().unwrap();
+                        g.final_ack = g.final_req;
+                    }
                     match &last_batch {
                         Some((lb, lp, idx)) if replayed != Some(v) => {
                             replayed = Some(v);
