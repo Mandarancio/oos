@@ -111,6 +111,8 @@ const DLG_ROW: i32 = 44;
 const DLG_CTRL: i32 = 40;
 /// records kept for history playback
 const HISTORY: usize = 200;
+/// Seconds the trigger level line stays after the level changed.
+const LEVEL_LINE_S: f64 = 1.5;
 /// LA words a history entry keeps: above this only the newest record has its LA (200 x 1 M words = 400 MB at most).
 const HISTORY_LA_WORDS: usize = 1_000_000;
 /// Segment counts of the segmented recording (0 = off).
@@ -896,6 +898,10 @@ pub struct Ui {
     xy: bool,
     knob_t: [f64; 16],
     pub now: f64,
+    /// the trigger level last seen and when it changed: the level line shows for `LEVEL_LINE_S` after a change (knob,
+    /// touch, remote), so the level can be followed while it moves
+    level_seen: (f32, f32),
+    level_changed: f64,
     pub frames: u64,
     /// records taken in, for the state line
     pub records: u64,
@@ -1099,6 +1105,8 @@ impl Ui {
             pinch: Pinch { active: false, p0: (0, 0), p1: (0, 0), ref_dx: 0, ref_dy: 0 },
             knob_t: [0.0; 16],
             now: 0.0,
+            level_seen: (f32::NAN, f32::NAN),
+            level_changed: 0.0,
             frames: 0,
             records: 0,
             auto: None,
@@ -1573,6 +1581,13 @@ impl Ui {
         self.la_probe_poll();
         self.log_tick();
         self.m.clamp_offsets();
+        if (self.m.trig_level, self.m.trig_level2) != self.level_seen {
+            // the first look (start-up) is no change
+            if !self.level_seen.0.is_nan() {
+                self.level_changed = self.now;
+            }
+            self.level_seen = (self.m.trig_level, self.m.trig_level2);
+        }
         self.src.publish_afg(&self.m);
         // SINGLE armed: from here on only what comes after the press counts
         let single = self.m.trig_mode == TrigMode::Single && self.m.run == RunState::Run;
@@ -2999,10 +3014,13 @@ impl Ui {
             cv.triangle([(a.x + 17, y - 6), (a.x + 24, y), (a.x + 17, y + 6)], col);
             cv.text_in(&f.sb, r, 1, &format!("{}", c + 1), DARK_TEXT);
         }
-        // trigger level marker at the right edge of the grid, its value next to it
+        // trigger level marker at the right edge of the grid, its value next to it. Not with AC or LF reject trigger
+        // coupling: the level then counts from the signal's mean, a mark at that level in volts would point nowhere
+        // (the trigger card shows the level)
         let ts = self.m.trig_src;
         let lvl = self.trig_level_shown();
-        if self.m.ch[ts].on && self.shows(ts) && self.m.trig_line().is_none() {
+        let filtered = matches!(self.m.trig_coupling(), TrigCoup::Ac | TrigCoup::LfReject);
+        if self.m.ch[ts].on && self.shows(ts) && self.m.trig_line().is_none() && !filtered {
             let y = self.y_of_volts(ts, lvl).clamp(a.y + 9, a.y + a.h - 9);
             let x1 = a.x + a.w - MARK_W;
             let r = Rect::new(x1 + 8, y - 8, 16, 16);
@@ -3011,7 +3029,7 @@ impl Ui {
             cv.text_in(&f.sb, r, 1, "T", DARK_TEXT);
             let s = si_short(lvl as f64, self.m.unit(ts));
             backed_text(cv, &f.sb, x1 - 4 - f.sb.width(&s), y + 5, &s, ACCENT);
-            if self.touch.drag == Drag::Level {
+            if self.touch.drag == Drag::Level || self.level_line_on() {
                 cv.dashed_hline(a.x, a.x + a.w - 1, y, 6, 4, ACCENT);
             }
         }
@@ -3060,7 +3078,7 @@ impl Ui {
                 tag(cv, a.x + 8, y - 30, &format!("Offset {}", si(self.m.ch[c].offset as f64, self.m.unit(c))), CH_COLORS[c]);
             }
             Drag::Delay if self.cur_win == self.touch.win.min(self.wins.len().max(1) - 1) => tag(cv, a.x + a.w / 2 - 60, a.y + 12, &format!("Delay {}", si(self.view().1 as f64, "s")), ACCENT),
-            Drag::Level if self.shows(ts) => {
+            Drag::Level if self.shows(ts) && !filtered => {
                 let y = self.y_of_volts(ts, self.m.trig_level);
                 tag(cv, a.x + a.w - 130, y - 30, &format!("Level {}", si(self.m.trig_level as f64, self.m.unit(ts))), ACCENT);
             }
@@ -4108,6 +4126,11 @@ impl Ui {
         let hyst: [f32; NCH] = std::array::from_fn(|c| 0.1 * self.m.ch[c].volts_per_div());
         let inp = oos_dsp::trigger::Input { ch: refs, dt: rec.dt, hyst };
         crate::trig::find_all(&self.m, &inp).into_iter().map(|i| rec.t0 + i * rec.dt).collect()
+    }
+
+    /// The level line is on: shortly after the trigger level changed (`LEVEL_LINE_S`).
+    fn level_line_on(&self) -> bool {
+        self.level_changed > 0.0 && self.now - self.level_changed < LEVEL_LINE_S
     }
 
     /// Level shown at the trigger marker: the pattern level of the source for pattern/duration, else the level.
@@ -8191,6 +8214,37 @@ mod tests {
         // averaging needs every record: back to the record path
         ui.m.acq = AcqMode::Average;
         assert!(!ui.fast_ok());
+    }
+
+    /// The trigger level line shows for a moment after the level changes by any way (not only while dragging it);
+    /// with AC or LF reject coupling there is no level mark (the level counts from the signal's mean).
+    #[test]
+    fn level_line_after_a_change_and_no_mark_with_ac_coupling() {
+        use super::*;
+        let mut ui = Ui::new(Source::Demo { t: 0.0 });
+        ui.step(0.05);
+        assert!(!ui.level_line_on(), "no line at start-up");
+        ui.adjust(Item::TrigLevel, 3);
+        ui.step(0.05);
+        assert!(ui.level_line_on());
+        for _ in 0..40 {
+            ui.step(0.05);
+        }
+        assert!(!ui.level_line_on(), "gone after {} s", LEVEL_LINE_S);
+        // the mark: drawn in the accent colour at the right edge of the plot, at the level's height
+        let mark = |ui: &mut Ui| {
+            let mut cv = Canvas::new(ui.area.w, ui.area.h + 200);
+            ui.render(&mut cv);
+            let g = ui.grid;
+            let x = g.x + g.w - MARK_W + 16;
+            (g.y..g.y + g.h).filter(|&y| cv.px[(y * cv.w + x) as usize] == ACCENT).count()
+        };
+        ui.m.trig_coup = TrigCoup::Dc;
+        assert!(mark(&mut ui) > 3, "DC: the T mark is there");
+        ui.m.trig_coup = TrigCoup::Ac;
+        assert_eq!(mark(&mut ui), 0, "AC: no T mark");
+        ui.m.trig_coup = TrigCoup::LfReject;
+        assert_eq!(mark(&mut ui), 0, "LF reject: no T mark");
     }
 
     /// The row of item `it` in the open menu dialog.
