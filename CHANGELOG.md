@@ -23,6 +23,12 @@ New:
   magnetics, motor, double pulse ...), the standard and pair measurements are placed by two more. Their values are
   bit for bit the same; every module is checked by the tests (numbers, names, places, a square wave through
   `compute`).
+- Every decoder is a module (`ui/src/protocols`, docs/protocol-modules.md), the core ones too: UART, I2C, SPI, CAN,
+  LIN, Parallel, C-PHY, I2S, USB, ARINC 429, MIL-STD-1553, Manchester, MLT-3, 9-bit UART, Modbus RTU/ASCII, 1-Wire,
+  DS2482, SWD, JTAG, QSPI, I3C, CAN FD, FlexRay and SENT moved out of the hand-wired code. The Decode menu, the
+  protocol trigger, the bus timing and the demo traffic come from the module alone; values several protocols use (baud
+  rate, bits, parity, SPI mode, CAN rate ...) are shared rows. Saved setups load as before. Choosing a protocol no
+  longer changes the sources of roles it doesn't have.
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`
