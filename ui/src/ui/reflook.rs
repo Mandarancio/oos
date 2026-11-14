@@ -795,7 +795,8 @@ mod tests {
         for _ in 0..12 {
             let view = u.catalog_view();
             if !opened {
-                if let Some(time) = u.catalog_group_rect(1) {
+                // TIMING is the third group of Basic
+                if let Some(time) = u.catalog_group_rect(2) {
                     if time.y < view.y + view.h - 4 && time.y + time.h > view.y + 4 {
                         let y = (time.y + 4).clamp(view.y + 2, view.y + view.h - 2);
                         u.tap(time.x + 12, y);

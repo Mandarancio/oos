@@ -9,6 +9,25 @@ new from them are the Cursor B source row and the power measurement tests.
 
 New:
 
+- One measurement page for everything: the categories down the left (Basic, Two sources, Serial & PAM, Jitter & eye,
+  Power, Motor drive, Power rails, Double pulse; under them Selected), right of them the sources and the groups, one
+  open at a time, at the bottom the last tile tapped with what it measures. Basic now holds all 60 standard
+  measurements with full names (Peak-to-Peak, Upper Level, Time of Maximum ...), Two sources all 17 pair variants;
+  the separate All 60 / Pairs page is gone. One tap on a tile adds it, a second removes it; a tile that is on is
+  filled. Selected lists what is on with Remove, Set and Clear all. Analysis > Measure in the start menu opens this
+  page (with Back), as the Measure button and key do. The settings are in named groups: Sources, Measure over,
+  Display, Parameters, More.
+- Measurements are modules (`ui/src/measures`, docs/measurement-modules.md): a module gives its measurements' tiles
+  (name, description, mark, unit, sources, category and group) and computes their values on the worker thread; one
+  line registers it. The 83 analysis measurements moved into nine modules (NRZ rate, jitter & eye, power, rails,
+  magnetics, motor, double pulse ...), the standard and pair measurements are placed by two more. Their values are
+  bit for bit the same; every module is checked by the tests (numbers, names, places, a square wave through
+  `compute`).
+- The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
+  statistics card); the existing glyphs of the atlases are unchanged.
+- Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`
+  on the measurement page) instead of tapping coordinates that moved; the storage script no longer shows a path that
+  differs between runs.
 - Top bar: Measure, Cursor, Display and Storage only. System is the first entry of its group in the start menu, SIM is
   under Analysis there, and Load file is a row of the Reference menu (the file comes from storage on the scope, from
   the file dialog in the desktop window).

@@ -230,7 +230,7 @@ impl Ui {
                 lines.push(format!("sine check {}", si(ls, "H")));
             }
             lines.push(format!("Bpk {}   Hpk {}", num(g.b_peak, "T"), num(g.h_peak, "A/m")));
-            lines.push(format!("\u{3bc}r {}", num(g.mu_r, "")));
+            lines.push(format!("\u{b5}r {}", num(g.mu_r, "")));
             let loss = if g.copper > 0.0 && g.loss.is_some() {
                 format!("loss {}   copper {}", num(g.loss, "W"), si(g.copper, "W"))
             } else {

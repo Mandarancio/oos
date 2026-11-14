@@ -264,6 +264,15 @@ const DEC_BAND: i32 = 28;
 const REF_COLORS: [(&str, Rgb); 5] = [("White", rgb(0xd8, 0xd8, 0xd8)), ("Red", rgb(0xf0, 0x60, 0x60)), ("Green", rgb(0x60, 0xe0, 0x90)), ("Blue", rgb(0x70, 0xa8, 0xf8)), ("Violet", rgb(0xc8, 0x88, 0xf0))];
 /// Kinds of delay and phase measurement and of second panes, for the setups.
 pub const PAIRS_N: usize = tools::PAIRS.len();
+/// The short names of the two-source variants (strip, SCPI).
+pub fn pair_short_name(k: usize) -> &'static str {
+    tools::PAIRS[k.min(PAIRS_N - 1)].0
+}
+
+/// Clock recovery of the eye for the measurement modules: samples per UI and the recovered clock.
+pub fn eye_infer(v: &[f32], dt: f64, rate: Option<f64>) -> Result<(f64, oos_dsp::eye::Clock), String> {
+    eyepage::automatic::infer(v, dt, rate, false).map(|(s, clk)| (s.samples_per_ui, clk))
+}
 pub const PANES_N: usize = tables::PANES.len();
 pub use eyepage::EYE_ITEMS;
 pub use panes::{PANE_HARMS, TREND_SEL_N};
@@ -356,7 +365,7 @@ pub enum MenuId {
     /// list of all options of a choice (`Ui::pick` names the item); picking returns to the menu of the item
     Pick,
     /// Full legacy measurement and pair catalog, including Selected.
-    MeasLegacy,
+    MeasSelected,
 }
 
 /// Buttons of the top bar.
@@ -1063,11 +1072,10 @@ impl MeasWorker {
 
 #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 pub struct Ui {
-    meas_category: usize,
     /// Add-measurements catalog: tab, selected button, which groups are open, scroll, and the extra sources.
     cat_tab: u8,
     cat_sel: u16,
-    cat_open: [u16; 6],
+    cat_open: [u16; crate::measures::CATEGORIES.len()],
     cat_scroll: i32,
     cat_c: WaveId,
     cat_d: WaveId,
@@ -1462,10 +1470,9 @@ impl Ui {
             m.ch[0].offset = -1.25;
         }
         let mut ui = Ui {
-            meas_category: 0,
             cat_tab: 0,
             cat_sel: 1,
-            cat_open: [1; 6],
+            cat_open: [1; crate::measures::CATEGORIES.len()],
             cat_scroll: 0,
             cat_c: WaveId::Ch(2),
             cat_d: WaveId::Ch(3),
@@ -5080,7 +5087,7 @@ impl Ui {
             cv.text(&f.sb, value_x, by + y1, &value, self.wave_color(r.src));
             if st.n > 1 {
                 cv.set_clip(Rect::new(body.x + 10, by + y1 + 4, (sd_x - body.x - 15).max(1), pitch - y1 - 4));
-                cv.text(&f.s, body.x + 10, by + y2, &format!("\u{3bc} {}", r.fmt(mean)), DIM);
+                cv.text(&f.s, body.x + 10, by + y2, &format!("\u{b5} {}", r.fmt(mean)), DIM);
                 cv.no_clip();
                 cv.text(&f.s, sd_x, by + y2, &sd, DIM);
             }
@@ -5355,7 +5362,7 @@ impl Ui {
             (MenuId::Pick, Some(p)) => p.menu,
             (m, _) => m,
         };
-        if matches!(m, MenuId::MeasAdd | MenuId::MeasHold | MenuId::MeasLegacy) {
+        if matches!(m, MenuId::MeasAdd | MenuId::MeasHold | MenuId::MeasSelected) {
             MenuId::Measure
         } else if m == MenuId::SimAdvanced {
             MenuId::Sim
@@ -5759,14 +5766,15 @@ impl Ui {
             }
             MenuId::MeasPair => (0..tools::PAIRS.len()).map(Item::MeasPair).collect(),
             MenuId::Dvm => vec![Item::DvmOn, Item::DvmSrc, Item::DvmMode, Item::CntOn, Item::CntSrc, Item::CntMode, Item::CntDigits, Item::CntClear],
-            MenuId::Measure => vec![Item::MeasSrc, Item::MeasSrcB, Item::MeasCopyTo, Item::MeasGate, Item::Open(MenuId::MeasPair), Item::Open(MenuId::Dvm), Item::MeasRefs, Item::MeasIdle, Item::MeasTsetup, Item::MeasThold, Item::MeasOutside, Item::MeasN, Item::MeasEdges, Item::MeasStats, Item::MeasLabels, Item::StripDock, Item::MeasClear],
+            // in the order of the groups of `measure_layout`
+            MenuId::Measure => vec![Item::MeasSrc, Item::MeasSrcB, Item::MeasCopyTo, Item::MeasGate, Item::MeasRefs, Item::MeasStats, Item::MeasLabels, Item::StripDock, Item::MeasIdle, Item::MeasTsetup, Item::MeasThold, Item::MeasOutside, Item::MeasN, Item::MeasEdges, Item::Open(MenuId::MeasPair), Item::Open(MenuId::Dvm), Item::MeasClear],
             MenuId::MeasHold => vec![Item::AddMeas],
             MenuId::Decode => self.decode_items(),
             MenuId::Bus => self.bus_items(),
             MenuId::Logger => vec![Item::LogOn, Item::LogIvl, Item::LogInfo],
             MenuId::Ref => vec![Item::RefSrc, Item::RefSave, Item::RefClear, Item::RefSel, Item::RefVpd, Item::RefOffset, Item::RefColor, Item::RefLabel, Item::RefLoad, Item::RefExport, Item::RefImport].into_iter().filter(|&it| it != Item::RefLoad || self.feature_on("load")).chain((0..NREF).map(Item::RefShow)).collect(),
             MenuId::MeasAdd => Vec::new(),
-            MenuId::MeasLegacy => self.measurement_catalog(),
+            MenuId::MeasSelected => self.measurement_catalog(),
             MenuId::Cursor if self.m.cursor == CursorMode::Off => vec![Item::CurMode],
             MenuId::Cursor if self.m.cursor == CursorMode::Xy => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurC, Item::CurD],
             MenuId::Cursor if self.m.cursor == CursorMode::Track => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurSrcB],
@@ -6589,9 +6597,9 @@ impl Ui {
             MenuId::ChMore(c) => format!("CH{} more", c + 1),
             MenuId::Trigger => "Trigger".into(),
             MenuId::Acquire => "Acquire".into(),
-            MenuId::Measure => "Measure".into(),
+            MenuId::Measure => "Measure settings".into(),
             MenuId::MeasAdd => "Add measurement".into(),
-            MenuId::MeasLegacy => "All measurements / Selected".into(),
+            MenuId::MeasSelected => format!("Selected measurements ({})", self.measurement_count()),
             MenuId::MeasHold => "Add".into(),
             MenuId::MeasPair => format!("Pairs {} to {}", self.pair_source_caption(self.meas_src), self.pair_source_caption(self.meas_src_b)),
             MenuId::Dvm => "DVM and counter".into(),
@@ -6746,7 +6754,7 @@ impl Ui {
             Item::MathBw => "Bandwidth",
             Item::MathSel => "Channel",
             Item::MathAuto => "Auto scale",
-            Item::Open(MenuId::MeasLegacy) => "All / Selected",
+            Item::Open(MenuId::MeasSelected) => "Selected",
             Item::Open(_) => "",
             Item::ChOn(_) => "Display",
             Item::ChCoupling(_) => "Coupling",
@@ -7720,6 +7728,11 @@ impl Ui {
             Kind::Value => {}
             Kind::Action => match it {
                 Item::Open(MenuId::La) if !self.m.la.on && !self.la_probe_ok() => self.toast("No LA probe connected"),
+                // start menu > Measure: the measurement page, as the Measure button and key open it
+                Item::Open(MenuId::Measure) if self.menu == MenuId::Main => {
+                    self.ensure_meas_own();
+                    self.open_submenu(MenuId::MeasAdd);
+                }
                 Item::Open(id) => {
                     if id == MenuId::Cursor && self.m.cursor == CursorMode::Off {
                         // like the CURSOR key
@@ -7834,7 +7847,7 @@ impl Ui {
                             self.meas_cfg = self.meas_cfg.map(|n| n - 1);
                         }
                         self.clear_measurement_statistics();
-                        self.toast(&format!("{} {} removed", k.name(), self.wave_name(self.meas_src)));
+                        self.toast(&format!("{} {} removed", meascatalog::meas_long_name(k), self.wave_name(self.meas_src)));
                         return;
                     } else {
                         if !self.meas_make_room() { return; }
@@ -7850,7 +7863,7 @@ impl Ui {
                         }
                     }
                     self.ensure_meas_own();
-                    self.toast(&format!("{} {} added", k.name(), self.wave_name(self.meas_src)));
+                    self.toast(&format!("{} {} added", meascatalog::meas_long_name(k), self.wave_name(self.meas_src)));
                 }
                 Item::MeasPair(k) => self.meas_pair_toggle(k),
                 Item::CntClear => self.counter_clear(),
@@ -8480,9 +8493,12 @@ impl Ui {
             return None;
         }
         if self.menu == MenuId::MeasAdd { return Some(self.catalog_dialog()); }
-        if self.menu == MenuId::MeasLegacy { return Some(self.measurement_chooser_layout()); }
+        if self.menu == MenuId::MeasSelected { return Some(self.measurement_chooser_layout()); }
         if self.menu == MenuId::Main {
             return Some(self.main_layout());
+        }
+        if self.menu == MenuId::Measure {
+            return Some(self.measure_layout());
         }
         let items = self.items(self.menu);
         let n = items.len() as i32;
@@ -8548,6 +8564,76 @@ impl Ui {
             line += n;
         }
         Dlg { r, close, back: None, rows, heads }
+    }
+
+    /// The group of the measurement settings a row belongs to (`MEASURE_GROUPS`).
+    fn measure_group(it: Item) -> usize {
+        match it {
+            Item::MeasSrc | Item::MeasSrcB | Item::MeasCopyTo => 0,
+            Item::MeasGate | Item::MeasRefs => 1,
+            Item::MeasStats | Item::MeasLabels | Item::StripDock => 2,
+            Item::MeasIdle | Item::MeasTsetup | Item::MeasThold | Item::MeasOutside | Item::MeasN | Item::MeasEdges => 3,
+            _ => 4,
+        }
+    }
+
+    /// The groups of the measurement settings: name and column.
+    const MEASURE_GROUPS: [(&'static str, usize); 5] = [("Sources", 0), ("Measure over", 0), ("Display", 0), ("Parameters", 1), ("More", 1)];
+
+    /// Measurement settings: two columns of named groups (what is measured, over what, how the results show; the
+    /// parameters of single measurements, and the pages beside them), below the top bar. The pages of the last group
+    /// share a line.
+    fn measure_layout(&self) -> Dlg {
+        const HEAD: i32 = 24;
+        let l = self.lay();
+        let gap = 16;
+        let cw = l.dlg_col;
+        let w = 24 + 2 * cw + gap;
+        let (ax, _) = self.menu_anchor();
+        let x = (ax - w / 2).clamp(METRICS.edge, self.scr.w - METRICS.edge - w);
+        let y = self.frame().top.bottom() + 4;
+        let mut col_y = [y + DLG_HEAD - 8; 2];
+        let (mut rows, mut heads) = (Vec::new(), Vec::new());
+        let mut last = usize::MAX;
+        // the left half of a line of two pages is taken: the next page goes right of it
+        let mut half: Option<i32> = None;
+        for it in self.items(MenuId::Measure) {
+            let g = Self::measure_group(it);
+            let (name, col) = Self::MEASURE_GROUPS[g];
+            let cx = x + 12 + col as i32 * (cw + gap);
+            if g != last {
+                heads.push((Rect::new(cx, col_y[col], cw, HEAD), name));
+                col_y[col] += HEAD;
+                last = g;
+                half = None;
+            }
+            if let Item::Open(_) = it {
+                let hw = (cw - 6) / 2;
+                let ctrl = match half.take() {
+                    Some(ry) => Rect::new(cx + hw + 6, ry, cw - hw - 6, DLG_CTRL),
+                    None => {
+                        let ry = col_y[col];
+                        col_y[col] += DLG_ROW;
+                        half = Some(ry);
+                        Rect::new(cx, ry, hw, DLG_CTRL)
+                    }
+                };
+                rows.push(Row { it, label: Rect::new(ctrl.x, ctrl.y, 0, 0), ctrl, ctl: Ctl::Button });
+                continue;
+            }
+            half = None;
+            let ry = col_y[col];
+            col_y[col] += DLG_ROW;
+            let label = Rect::new(cx, ry, l.dlg_label, DLG_CTRL);
+            let lw = l.dlg_label + 4;
+            let ctrl = if Self::kind(it) == Kind::Action { Rect::new(cx, ry, cw, DLG_CTRL) } else { Rect::new(cx + lw, ry, cw - lw, DLG_CTRL) };
+            rows.push(Row { it, label, ctl: self.ctl(it, ctrl.w), ctrl });
+        }
+        let h = col_y.into_iter().max().unwrap_or(y) - y + 6;
+        let r = Rect::new(x, y, w, h);
+        let close = Rect::new(r.x + r.w - 52, r.y + 6, 44, DLG_CTRL);
+        let back = self.parent.map(|_| Rect::new(close.x - 88, close.y, 82, DLG_CTRL));
+        Dlg { r, close, back, rows, heads }
     }
 
     /// Font and box of the text of a menu button, and whether it fits: centred in the button while it fits, else
@@ -8667,8 +8753,6 @@ impl Ui {
                     let txt = match picked {
                         Some((o, _)) => o,
                         None if row.it == Item::QuickRun => format!("Quick \u{b7} {}", self.m.quick.short()),
-                        None if self.menu == MenuId::MeasLegacy && row.it == Item::Open(MenuId::Measure) => "Settings".into(),
-                        None if self.menu == MenuId::MeasLegacy && row.it == Item::Open(MenuId::MeasPair) => "Channel pairs".into(),
                         None if matches!(row.it, Item::MeasRemove(_)) => if let Item::MeasRemove(index) = row.it { format!("Remove {}", self.selected_measurement_label(index as usize)) } else { unreachable!() },
                         None if kind == Kind::Action => self.item_label(row.it).to_string(),
                         None => self.value(row.it),
@@ -8694,6 +8778,18 @@ impl Ui {
         }
     }
 
+    /// Back in a sub menu: the menu it was opened from, with the focus it had.
+    fn menu_back(&mut self) {
+        if let Some((menu, focus)) = self.menu_history.pop() {
+            self.menu = menu;
+            self.focus = focus;
+            self.parent = self.menu_history.last().map(|entry| entry.0);
+        } else {
+            self.menu = self.parent.take().unwrap_or(MenuId::Main);
+            self.focus = 0;
+        }
+    }
+
     /// Tap inside the menu dialog; false when (x, y) is outside it.
     fn tap_menu(&mut self, x: i32, y: i32) -> bool {
         if self.menu_open && self.menu == MenuId::MeasAdd {
@@ -8713,14 +8809,7 @@ impl Ui {
                 if self.menu == MenuId::Pick {
                     self.close_picker();
                 } else {
-                    if let Some((menu, focus)) = self.menu_history.pop() {
-                        self.menu = menu;
-                        self.focus = focus;
-                        self.parent = self.menu_history.last().map(|entry| entry.0);
-                    } else {
-                        self.menu = self.parent.take().unwrap_or(MenuId::Main);
-                        self.focus = 0;
-                    }
+                    self.menu_back();
                 }
                 return true;
             }
@@ -12399,7 +12488,7 @@ mod tests {
         use super::*;
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
         let rest = vec![
-            Item::MeasSrc, Item::MeasSrcB, Item::MeasCopyTo, Item::MeasGate, Item::Open(MenuId::MeasPair), Item::Open(MenuId::Dvm), Item::MeasRefs, Item::MeasIdle, Item::MeasTsetup, Item::MeasThold, Item::MeasOutside, Item::MeasN, Item::MeasEdges, Item::MeasStats, Item::MeasLabels, Item::StripDock, Item::MeasClear,
+            Item::MeasSrc, Item::MeasSrcB, Item::MeasCopyTo, Item::MeasGate, Item::MeasRefs, Item::MeasStats, Item::MeasLabels, Item::StripDock, Item::MeasIdle, Item::MeasTsetup, Item::MeasThold, Item::MeasOutside, Item::MeasN, Item::MeasEdges, Item::Open(MenuId::MeasPair), Item::Open(MenuId::Dvm), Item::MeasClear,
         ];
         ui.key(key::MEASURE);
         assert_eq!(ui.menu, MenuId::MeasAdd);
@@ -12591,7 +12680,14 @@ mod tests {
             ui.open_menu(MenuId::Main);
             let (x, y) = mid(row_of(&ui, Item::Open(m)).ctrl);
             ui.tap(x, y);
-            assert_eq!((ui.menu, ui.parent), (m, Some(MenuId::Main)));
+            // Measure is the measurement page, as its key and the top bar open it (with Back to the start menu)
+            let page = if m == MenuId::Measure { MenuId::MeasAdd } else { m };
+            assert_eq!((ui.menu, ui.parent), (page, Some(MenuId::Main)));
+            if m == MenuId::Measure {
+                let (x, y) = mid(ui.dlg_layout().unwrap().back.expect("Back to the start menu"));
+                ui.tap(x, y);
+                assert_eq!(ui.menu, MenuId::Main);
+            }
         }
         assert_eq!(ui.m.cursor, CursorMode::Time, "Cursor entry turns the cursors on like the key");
         // slope steps and keeps the menu, history entries appear with the history

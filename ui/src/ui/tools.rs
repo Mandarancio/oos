@@ -114,10 +114,10 @@ impl Ui {
     }
 
     pub(super) fn selected_measurement_label(&self, index: usize) -> String {
-        if let Some(&(kind, source)) = self.m.meas.get(index) { return format!("{} {}", self.wave_name(source), kind.name()); }
+        if let Some(&(kind, source)) = self.m.meas.get(index) { return format!("{} {}", self.wave_name(source), meascatalog::meas_long_name(kind)); }
         let index = index.saturating_sub(self.m.meas.len());
         if let Some(&(kind, a, b)) = self.m.meas2.get(index) {
-            return format!("{}-{} {}", self.wave_name(a), self.wave_name(b), PAIRS[kind.min(PAIRS.len()-1)].0);
+            return format!("{}-{} {}", self.wave_name(a), self.wave_name(b), meascatalog::pair_long_name(kind));
         }
         let Some(&(id, a, b, c, d)) = self.m.cat.get(index.saturating_sub(self.m.meas2.len())) else { return String::new() };
         self.catalog_source_label(id, [a,b,c,d])
