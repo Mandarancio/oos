@@ -617,6 +617,7 @@ enum Item {
     MeasTsetup,
     MeasThold,
     CurMode,
+    CurSrcB,
     CurA,
     CurB,
     Persist,
@@ -5793,6 +5794,7 @@ impl Ui {
             MenuId::MeasLegacy => self.measurement_catalog(),
             MenuId::Cursor if self.m.cursor == CursorMode::Off => vec![Item::CurMode],
             MenuId::Cursor if self.m.cursor == CursorMode::Xy => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurC, Item::CurD],
+            MenuId::Cursor if self.m.cursor == CursorMode::Track => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurSrcB],
             MenuId::Cursor => vec![Item::CurMode, Item::CurA, Item::CurB],
             MenuId::Display => {
                 let mut v = vec![Item::Open(MenuId::Windows), Item::Views, Item::Persist, Item::ColorGrade, Item::Intensity, Item::GridStyle, Item::GridBright, Item::GridFrame, Item::Dots, Item::BottomBar, Item::ZInput, Item::Histogram, Item::XyMode, Item::Hdmi, Item::HdmiView, Item::Backlight, Item::TextSize, Item::ClearDisp];
@@ -6929,6 +6931,7 @@ impl Ui {
             Item::CatSourceC => "Source C",
             Item::CatSourceD => "Source D",
             Item::CurMode => "Mode",
+            Item::CurSrcB => "Cursor B source",
             Item::CurA => "Cursor A",
             Item::CurB => "Cursor B",
             Item::CurC => "Y1",
@@ -7096,6 +7099,7 @@ impl Ui {
             Item::MeasSrc => self.wave_name(self.meas_src),
             Item::MeasCopyTo => "Pick".into(),
             Item::MeasSrcB => self.wave_name(self.meas_src_b),
+            Item::CurSrcB => self.wave_name(self.cursor_b_source()),
             Item::ChFine => onoff(m.fine_v),
             Item::MathExprI => if m.math_expr[m.math_sel].is_empty() { "none".to_string() } else { m.math_expr[m.math_sel].clone() },
             Item::LogOn => onoff(self.log.file.is_some()),
@@ -7457,6 +7461,12 @@ impl Ui {
             Item::MeasSrcB => {
                 let cur = self.meas_src_b;
                 self.meas_src_b = self.step_wave(cur, d);
+            }
+            // Track cursor B on its own source (follows cursor A's until set)
+            Item::CurSrcB => {
+                let cur = self.cursor_b_source();
+                let next = self.step_wave(cur, d);
+                self.set_cursor_b_source(next);
             }
             Item::DvmOn => m.dvm_on = !m.dvm_on,
             Item::DvmSrc => m.dvm_src = src_step(m.dvm_src, NCH, d),
@@ -8355,7 +8365,7 @@ impl Ui {
             Item::TrigSrc | Item::TrigSrc2 => return self.trigger_sources().into_iter().map(Self::trigger_wave_label).collect(),
             Item::DecSrc => return self.decoder_sources().into_iter().map(decode_source_name).collect(),
             Item::RefSrc => return ch_names(),
-            Item::MeasSrc | Item::MeasSrcB | Item::CatSourceC | Item::CatSourceD => return self.wave_names(),
+            Item::MeasSrc | Item::MeasSrcB | Item::CurSrcB | Item::CatSourceC | Item::CatSourceD => return self.wave_names(),
             Item::MeasCopyTo => return self.wave_names().into_iter().filter(|n| *n != self.wave_name(self.meas_src)).collect(),
             Item::MathA | Item::MathB => return self.math_source_ids(self.m.math_sel).into_iter().map(src_name).collect(),
             Item::MathSel => return (0..NMATH).map(|k| format!("M{}", k + 1)).collect(),
