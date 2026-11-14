@@ -49,7 +49,7 @@ pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64)
     let usable = m.trig_channels().iter().enumerate().all(|(c, &u)| !u || !refs[c].is_empty());
     // plain edge trigger on a channel: the edge of the set direction nearest the hardware point, on the signal smoothed to
     // one screen point (fastdraw::edge_smooth; the hardware point is not always on the right edge, trigger.md 8)
-    let smooth = (m.trig_type == TrigType::Edge && m.trig_line().is_none() && !f.roll && !f.scan && f.ch[m.trig_src].len() > 1)
+    let smooth = (m.trig_type == TrigType::Edge && m.trig_line().is_none() && !f.roll && !f.scan && f.fixed_ti.is_none() && f.ch[m.trig_src].len() > 1)
         .then(|| {
             let col = (window / n as f64 / f.dt).floor().clamp(1.0, 256.0) as usize;
             let (rising, either) = (m.slope != Slope::Fall, m.slope == Slope::Either);
@@ -62,7 +62,10 @@ pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64)
             found.or((m.trig_coupling() != TrigCoup::Dc).then_some(f.pre as f64))
         })
         .flatten();
-    let found = if f.roll || f.scan {
+    let found = if let Some(t) = f.fixed_ti {
+        // read again in STOP: the trigger of the record as it was shown
+        Some(t)
+    } else if f.roll || f.scan {
         None
     } else if smooth.is_some() {
         smooth
@@ -165,6 +168,12 @@ pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64)
         }
         // sparse views (less than one sample per two screen points, fast time bases): windowed sinc like the stock
         // "Auto" interpolation; otherwise linear
+        if sparse {
+            let mut out = Vec::with_capacity(n);
+            oos_dsp::interp::lanczos8_grid(v, ti + t_first / f.dt, dt / f.dt, n, &mut out);
+            ch[c] = out;
+            continue;
+        }
         ch[c] = (0..n)
             .map(|k| {
                 let x = ti + (t_first + k as f64 * dt) / f.dt;
@@ -197,7 +206,7 @@ mod tests {
             })
             .collect();
         let window = 100_000e-9;
-        let frame = Arc::new(Frame { seq: 1, dt: 1e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None });
+        let frame = Arc::new(Frame { seq: 1, dt: 1e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None });
         let rms = |v: &[f32]| (v.iter().map(|y| (y - 1.0) * (y - 1.0)).sum::<f32>() / v.len() as f32).sqrt();
         let mut m = Model::default();
         m.trig_level = 5.0; // nothing to trigger on: the window stays at the hardware point
@@ -218,7 +227,7 @@ mod tests {
         let mut m = Model::default();
         m.trig_level = 0.0;
         let window = 9000e-9;
-        let f = Frame { seq: 1, dt: 1e-9, pre: 5400, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None };
+        let f = Frame { seq: 1, dt: 1e-9, pre: 5400, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None };
         let r = to_record(&Arc::new(f), &m, 3600, window, -window / 2.0);
         assert!(r.triggered);
         assert!(r.ch[0].iter().all(|y| y.is_finite()), "{} gaps", r.ch[0].iter().filter(|y| !y.is_finite()).count());
@@ -234,7 +243,7 @@ mod peak_detect {
         let m = Model { slope: Slope::Fall, ..Model::default() };
         let mut v: Vec<f32> = (0..100_000).map(|k| if (k / 25_000) % 2 == 0 { 0.0 } else { 3.0 }).collect();
         v[12_345] = 2.0; // one-sample glitch on the low level
-        let f = Arc::new(Frame { seq: 1, dt: 20e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None });
+        let f = Arc::new(Frame { seq: 1, dt: 20e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None });
         let window = m.time_per_div() as f64 * 10.0; // 2 ms > record: whole record on screen
         let t = std::time::Instant::now();
         let mut r = to_record(&f, &m, 3600, window, -window / 2.0);
@@ -258,7 +267,7 @@ mod bench {
     #[test]
     #[ignore]
     fn bench_record() {
-        for &(tdiv, pts) in &[(1e-7, 1408usize), (1e-6, 12_500), (1e-5, 100_000)] {
+        for &(tdiv, pts) in &[(1e-7, 1408usize), (1e-7, 352), (1e-6, 12_500), (1e-5, 100_000)] {
             let mut m = Model::default();
             m.tscale = tscales().iter().position(|&x| (x as f64 - tdiv).abs() < tdiv * 1e-3).unwrap();
             m.trig_level = 0.0;
@@ -266,7 +275,7 @@ mod bench {
             let dt = 0.8e-9 * (tdiv / 1e-7).max(1.0) * 1408.0 / pts as f64 * if pts == 1408 { 1.0 } else { 1.0 };
             let f = 3.0 / (tdiv * 10.0);
             let v: Vec<f32> = (0..pts).map(|k| (2.0 * std::f64::consts::PI * f * k as f64 * dt).sin() as f32).collect();
-            let fr = Arc::new(Frame { seq: 1, dt, pre: pts / 2, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, pts), stamp: 0, la: None });
+            let fr = Arc::new(Frame { seq: 1, dt, pre: pts / 2, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, pts), stamp: 0, la: None, fixed_ti: None });
             let window = tdiv * 10.0;
             let mut ph = crate::wave::Phosphor::new(970, 448);
             let n = 400;

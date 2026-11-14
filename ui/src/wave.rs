@@ -514,13 +514,45 @@ impl Source {
         None
     }
 
-    /// Hardware source: takes every queued frame but the newest (the fast display path draws them; the newest stays
-    /// for `acquire`, which makes the full record for measurements, decoding and history).
-    pub fn drain_but_last(&mut self) -> Vec<crate::board::Frame> {
+    /// Hardware source in STOP: the view shown (time per div, delay; None: none to read for), and the frame the
+    /// thread has read again from the stored record for it, if a new one came (`board::Shared::stop_view`).
+    pub fn hw_stop(&mut self, view: Option<(f64, f64)>) -> Option<crate::board::Frame> {
         if let Source::Hw { shared, .. } = self {
             let mut g = shared.lock().unwrap();
+            g.stop_view = view;
+            return g.replay.take().filter(|_| view.is_some());
+        }
+        None
+    }
+
+    /// Hardware source: every frame of a batch decoded again (the record path, which takes them one by one).
+    pub fn hw_take_all(&mut self) {
+        if let Source::Hw { shared, .. } = self {
+            shared.lock().unwrap().take = 0;
+        }
+    }
+
+    /// Hardware source: frames decoded and frames dropped unseen so far (`board::Shared`).
+    pub fn hw_frames(&self) -> Option<(u64, u64)> {
+        match self {
+            Source::Hw { shared, .. } => shared.lock().ok().map(|g| (g.decoded, g.dropped)),
+            _ => None,
+        }
+    }
+
+    /// Hardware source: takes the newest `max` queued frames but the newest one (the fast display path draws them;
+    /// the newest stays for `acquire`, which makes the full record for measurements, decoding and history). Older
+    /// ones are dropped and counted.
+    pub fn drain_newest(&mut self, max: usize) -> Vec<crate::board::Frame> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            // the thread decodes no more than this of a batch (the record takes one more)
+            g.take = max + 1;
             let n = g.queue.len().saturating_sub(1);
-            return g.queue.drain(..n).collect();
+            let skip = n.saturating_sub(max);
+            g.queue.drain(..skip);
+            g.dropped += skip as u64;
+            return g.queue.drain(..n - skip).collect();
         }
         Vec::new()
     }
@@ -537,6 +569,8 @@ impl Source {
             let mut g = shared.lock().unwrap();
             g.want = Some(board().want(m));
             g.slow = board().slow_mode(m);
+            // running: no STOP view any more, the thread acquires again
+            (g.stop_view, g.replay) = (None, None);
             g.stamp = m.hw_stamp;
             // SINGLE takes nothing from before the key press
             let fresh = loop {
@@ -809,70 +843,85 @@ impl Phosphor {
     /// options: dots (`Model::dots`, one pixel per sample) and per-sample brightness weights 0..1 (Z input).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_ex(&mut self, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>) {
-        let (wd, ht) = (self.w as f32, self.h as f32);
-        let tdiv = view.0 as f64;
-        let vdelay = view.1 as f64;
-        let ppd_x = wd as f64 / HDIV as f64;
-        let ch = &m.ch[c];
-        let vpd = ch.volts_per_div();
-        let ppd_y = ht / VDIV;
-        let cy = ht / 2.0;
-        let x_of = |k: usize| -> f32 { (((rec_t0 + k as f64 * dt - vdelay) / tdiv) * ppd_x + wd as f64 / 2.0) as f32 };
-        let y_of = |val: f32| -> f32 { cy - (val + ch.offset) / vpd * ppd_y };
-        let map = &mut self.map[c];
-        let (wi, hi) = (self.w as i32, self.h as i32);
-        let mut prev: Option<(f32, f32)> = None;
-        let w0 = w;
-        for (k, &val) in v.iter().enumerate() {
-            if !val.is_finite() {
-                prev = None;
-                continue;
+        let (pw, ph) = (self.w, self.h);
+        draw_trace(&mut self.map[c], pw, ph, 0, c, m, view, rec_t0, dt, v, w, z);
+    }
+}
+
+/// `Phosphor::draw_ex` on one band of one channel's map (`pw` x `ph`, row-major): `band` holds the rows `r_lo` ..
+/// `r_lo + band.len() / pw` (the whole map: `r_lo` 0).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_trace(band: &mut [u16], pw: usize, ph: usize, r_lo: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>) {
+    let (b0, b1) = (r_lo as i32, (r_lo + band.len() / pw.max(1)).min(ph) as i32);
+    let wi = pw as i32;
+    trace_columns(pw, ph, c, m, view, rec_t0, dt, v, w, z, (0, wi), |cx, r0, r1, w| {
+        for r in r0.max(b0)..=r1.min(b1 - 1) {
+            let idx = ((r - b0) * wi + cx) as usize;
+            band[idx] = band[idx].saturating_add(w);
+        }
+    });
+}
+
+/// The pixels of a trace on a `pw` x `ph` map, column by column: `put(column, first row, last row, weight)` for every
+/// vertical span (rows within the map, first <= last), only for the columns `cols.0 .. cols.1`. Line segments from
+/// point to point, or one pixel a point with `Model::dots`; `z` scales the weight per point (Z input).
+#[allow(clippy::too_many_arguments)]
+pub fn trace_columns(pw: usize, ph: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>, cols: (i32, i32), mut put: impl FnMut(i32, i32, i32, u16)) {
+    let (wd, ht) = (pw as f32, ph as f32);
+    let tdiv = view.0 as f64;
+    let vdelay = view.1 as f64;
+    let ppd_x = wd as f64 / HDIV as f64;
+    let ch = &m.ch[c];
+    let vpd = ch.volts_per_div();
+    let ppd_y = ht / VDIV;
+    let cy = ht / 2.0;
+    let x_of = |k: usize| -> f32 { (((rec_t0 + k as f64 * dt - vdelay) / tdiv) * ppd_x + wd as f64 / 2.0) as f32 };
+    let y_of = |val: f32| -> f32 { cy - (val + ch.offset) / vpd * ppd_y };
+    let hi = ph as i32;
+    let (c_lo, c_hi) = (cols.0.max(0), cols.1.min(pw as i32));
+    let mut prev: Option<(f32, f32)> = None;
+    let w0 = w;
+    for (k, &val) in v.iter().enumerate() {
+        if !val.is_finite() {
+            prev = None;
+            continue;
+        }
+        let w = match z {
+            Some(z) => (w0 as f32 * z.get(k).copied().unwrap_or(0.0).clamp(0.0, 1.0)).round() as u16,
+            None => w0,
+        };
+        let p = (x_of(k), y_of(val));
+        if m.dots {
+            let (x, y) = (p.0.floor() as i32, p.1.round() as i32);
+            if (c_lo..c_hi).contains(&x) && (0..hi).contains(&y) {
+                put(x, y, y, w);
             }
-            let w = match z {
-                Some(z) => (w0 as f32 * z.get(k).copied().unwrap_or(0.0).clamp(0.0, 1.0)).round() as u16,
-                None => w0,
-            };
-            let p = (x_of(k), y_of(val));
-            if m.dots {
-                let (x, y) = (p.0.floor() as i32, p.1.round() as i32);
-                if (0..wi).contains(&x) && (0..hi).contains(&y) {
-                    let idx = (y * wi + x) as usize;
-                    map[idx] = map[idx].saturating_add(w);
-                }
-                continue;
-            }
-            if let Some(q) = prev {
-                // rasterize segment q -> p as vertical spans per column
-                let (x0, y0, x1, y1) = if q.0 <= p.0 { (q.0, q.1, p.0, p.1) } else { (p.0, p.1, q.0, q.1) };
-                let cx0 = x0.floor() as i32;
-                let cx1 = x1.floor() as i32;
-                if cx1 >= 0 && cx0 < wi {
-                    for cx in cx0.max(0)..=cx1.min(wi - 1) {
-                        let (ya, yb) = if cx0 == cx1 {
-                            (y0, y1)
-                        } else {
-                            let ta = ((cx as f32 - x0) / (x1 - x0)).clamp(0.0, 1.0);
-                            let tb = ((cx as f32 + 1.0 - x0) / (x1 - x0)).clamp(0.0, 1.0);
-                            (y0 + (y1 - y0) * ta, y0 + (y1 - y0) * tb)
-                        };
-                        let (lo, hi_) = if ya < yb { (ya, yb) } else { (yb, ya) };
-                        let r0 = (lo.round() as i32).max(0);
-                        let r1 = (hi_.round() as i32).min(hi - 1);
-                        let mut r = r0;
-                        while r <= r1 {
-                            let idx = (r * wi + cx) as usize;
-                            map[idx] = map[idx].saturating_add(w);
-                            r += 1;
-                        }
-                        // clipped beyond the screen edge: mark the edge pixel
-                        if r0 > r1 && ((lo < 0.0 && hi_ < 0.0) || (lo >= ht && hi_ >= ht)) {
-                            // fully outside: nothing
-                        }
+            continue;
+        }
+        if let Some(q) = prev {
+            // rasterize segment q -> p as vertical spans per column
+            let (x0, y0, x1, y1) = if q.0 <= p.0 { (q.0, q.1, p.0, p.1) } else { (p.0, p.1, q.0, q.1) };
+            let cx0 = x0.floor() as i32;
+            let cx1 = x1.floor() as i32;
+            if cx1 >= c_lo && cx0 < c_hi {
+                for cx in cx0.max(c_lo)..=cx1.min(c_hi - 1) {
+                    let (ya, yb) = if cx0 == cx1 {
+                        (y0, y1)
+                    } else {
+                        let ta = ((cx as f32 - x0) / (x1 - x0)).clamp(0.0, 1.0);
+                        let tb = ((cx as f32 + 1.0 - x0) / (x1 - x0)).clamp(0.0, 1.0);
+                        (y0 + (y1 - y0) * ta, y0 + (y1 - y0) * tb)
+                    };
+                    let (lo, hi_) = if ya < yb { (ya, yb) } else { (yb, ya) };
+                    let r0 = (lo.round() as i32).max(0);
+                    let r1 = (hi_.round() as i32).min(hi - 1);
+                    if r0 <= r1 {
+                        put(cx, r0, r1, w);
                     }
                 }
             }
-            prev = Some(p);
         }
+        prev = Some(p);
     }
 }
 

@@ -316,6 +316,20 @@ struct MStat {
     max: f64,
 }
 
+impl MStat {
+    fn add(&mut self, v: f64) {
+        if self.n == 0 {
+            self.min = v;
+            self.max = v;
+        }
+        self.n += 1;
+        self.sum += v;
+        self.sumsq += v * v;
+        self.min = self.min.min(v);
+        self.max = self.max.max(v);
+    }
+}
+
 #[derive(Clone)]
 struct RefWave {
     src: usize,
@@ -847,6 +861,19 @@ pub struct Ui {
     /// (`stat`, trigger.md 8)
     pub fast_edges: [u64; 4],
     pub fast_off: (f64, f64),
+    /// frames the fast path takes in one screen (`fast_max`), its time in the last screens (ms, smoothed) and that of
+    /// its two phases (placing, drawing; `:SYSTem:STATe?`)
+    pub fast_take: f32,
+    /// STOP: the software trigger of the record shown at the stop (s from the hardware trigger point), kept for the
+    /// records read again (`stop_replay`)
+    stop_ti_off: Option<f64>,
+    pub t_fast: f32,
+    pub t_fast_ab: (f32, f32),
+    /// of the drawing: adding the collected frames to the maps (ms), frames a call (smoothed)
+    pub t_fast_fold: f32,
+    pub fast_n: f32,
+    /// the fast path's collected differences per channel (`fastdraw::diff_span`), zero between screens
+    acc_t: [Vec<u16>; NCH],
     /// segmented recording: records since the acquisition started, and whether it ran in the last frame
     seg_n: usize,
     was_running: bool,
@@ -1073,6 +1100,13 @@ impl Ui {
             zone_drops: 0,
             fast_edges: [0; 4],
             fast_off: (0.0, 0.0),
+            fast_take: crate::board::QUEUE_MAX as f32,
+            stop_ti_off: None,
+            t_fast: 0.0,
+            t_fast_ab: (0.0, 0.0),
+            t_fast_fold: 0.0,
+            fast_n: 0.0,
+            acc_t: Default::default(),
             seg_n: 0,
             was_running: false,
             azr: Default::default(),
@@ -1616,6 +1650,7 @@ impl Ui {
         let persist = PERSIST[self.m.persist].1;
         // a source started in STOP (replay) still shows its first record, unless the screen was cleared
         if self.m.run == RunState::Run || (self.last[0].is_none() && !self.cleared) {
+            self.stop_ti_off = None;
             if self.dirty_map {
                 self.ph.clear();
                 self.phz.clear();
@@ -1629,7 +1664,14 @@ impl Ui {
                 self.ph.decay(f);
                 self.phz.decay(f);
             }
+            let fast = self.fast_ok();
+            if !fast {
+                self.src.hw_take_all();
+            }
             let k = match self.m.trig_type {
+                // fast path: it draws the queue on several cores, the record is the newest frame only (frames that
+                // come in meanwhile wait for the next screen's fast path instead of a full record each, one by one)
+                _ if fast => 1,
                 // the hardware source delivers batches: draw up to 48 queued records per frame
                 _ if matches!(self.src, Source::Hw { .. }) => 48,
                 TrigType::Edge | TrigType::Pattern => 6,
@@ -1639,20 +1681,28 @@ impl Ui {
             let mut got = 0;
             let (mut ta, mut td) = (0f32, 0f32);
             // fast display path (fastdraw.rs): every queued frame but the newest straight into the phosphor map
-            if self.fast_ok() {
+            if fast {
                 let t0 = std::time::Instant::now();
-                let frames = self.src.drain_but_last();
+                let frames = self.src.drain_newest(self.fast_max());
                 if !frames.is_empty() && clear_pending {
                     self.ph.clear();
                     clear_pending = false;
                 }
-                for f in &frames {
-                    if self.fast_draw(f) {
-                        self.m.status = TrigStatus::Triggered;
-                    }
+                let n = frames.len();
+                if n > 0 && self.fast_draw_all(frames) > 0 {
+                    self.m.status = TrigStatus::Triggered;
                 }
-                got += frames.len();
-                td += t0.elapsed().as_secs_f32() * 1000.0;
+                got += n;
+                let ms = t0.elapsed().as_secs_f32() * 1000.0;
+                td += ms;
+                self.t_fast += 0.05 * (ms - self.t_fast);
+                if n > 0 && ms > 0.0 {
+                    // as many as would have filled the budget at this pace: with a fixed part in each screen's time
+                    // (starting the helpers) this settles where the time meets the budget. Down only when the budget
+                    // was exceeded, up only when the take was the limit: the hardware delivers in bursts, and a screen
+                    // with a few frames says nothing about how many fit
+                    self.fast_take = fast_take_next(self.fast_take, n, ms, self.fast_budget());
+                }
             }
             for _ in 0..k {
                 let t0 = std::time::Instant::now();
@@ -1776,7 +1826,9 @@ impl Ui {
                 self.prof_add(1, p2 - p1);
             }
         } else {
-            // stopped: redraw the stored record with the current scale/offset
+            // stopped: the whole stored record for the view shown (read again by the thread, `stop_replay`), then
+            // redraw the stored record with the current scale/offset
+            self.stop_replay();
             self.ph.clear();
             self.phz.clear();
             let mainv = (self.m.time_per_div(), self.m.delay);
@@ -1801,18 +1853,8 @@ impl Ui {
             self.mstat.resize(rows.len(), MStat::default());
             self.counter_update();
             for (i, row) in rows.iter().enumerate() {
-                let v = row.v;
-                if v.is_finite() {
-                    let st = &mut self.mstat[i];
-                    if st.n == 0 {
-                        st.min = v;
-                        st.max = v;
-                    }
-                    st.n += 1;
-                    st.sum += v;
-                    st.sumsq += v * v;
-                    st.min = st.min.min(v);
-                    st.max = st.max.max(v);
+                if row.v.is_finite() {
+                    self.mstat[i].add(row.v);
                 }
             }
         }
@@ -1887,6 +1929,54 @@ impl Ui {
         parts.join("   \u{b7}   ")
     }
 
+    /// Frames the fast path takes in one screen: as many as fit into `fast_budget` at the pace of the last screens.
+    /// Beyond that the frame rate would drop (and with it the time the newest frame waits to be seen).
+    fn fast_max(&self) -> usize {
+        (self.fast_take as usize).clamp(4, crate::board::QUEUE_MAX)
+    }
+
+    /// Time of a screen the fast path may spend (ms): what a frame of the 30 a second (33 ms) leaves after the rest of
+    /// the step, drawing and showing the screen, less 2 ms of slack; 5 to 28 ms.
+    fn fast_budget(&self) -> f32 {
+        let rest = (self.t_step - self.t_fast).max(0.0) + self.t_render + self.t_present;
+        (31.0 - rest).clamp(5.0, 28.0)
+    }
+
+    /// STOP on the hardware: the thread acquires nothing and reads the stored record again for every view (time base,
+    /// delay), as much of it as the view shows: zoomed out the whole record, zoomed in every sample of the part on
+    /// screen. The trigger stays where the last record had it (software trigger included).
+    fn stop_replay(&mut self) {
+        let ok = self.src.is_hw()
+            && board().slow_mode(&self.m) == crate::board::Slow::Off
+            && !self.m.la_on()
+            && self.m.segments == 0
+            && self.hist_pos.is_none()
+            && self.last[0].as_ref().is_some_and(|r| r.raw.is_some());
+        if !ok {
+            self.src.hw_stop(None);
+            self.stop_ti_off = None;
+            return;
+        }
+        // the software trigger of the record shown at the stop, as a time from the hardware trigger point
+        if self.stop_ti_off.is_none() {
+            self.stop_ti_off = self.last[0].as_ref().and_then(|r| r.raw.as_ref()).map(|raw| {
+                let f = &raw.frame;
+                let ti = raw.i0 as f64 - raw.t0 / f.dt;
+                (ti - f.fixed_ti.unwrap_or(f.pre as f64)) * f.dt
+            });
+        }
+        let view = (self.m.time_per_div() as f64, self.m.delay as f64);
+        let Some(mut f) = self.src.hw_stop(Some(view)) else { return };
+        if let (Some(t), Some(off)) = (f.fixed_ti, self.stop_ti_off) {
+            f.fixed_ti = Some(t + off / f.dt);
+        }
+        let window = view.0 * HDIV as f64;
+        let rec = crate::board::to_record(&std::sync::Arc::new(f), &self.m, 3600, window, view.1 - window / 2.0);
+        self.last[0] = Some(rec);
+        self.measure_last();
+        self.meas_new = true;
+    }
+
     /// The fast display path applies: hardware frames with a plain edge trigger and nothing that needs every record
     /// as a full record (averaging, mask test, zones, segments, zoom, XY, Z input, software coupling or filter).
     fn fast_ok(&self) -> bool {
@@ -1905,70 +1995,79 @@ impl Ui {
             && (0..NCH).all(|c| !m.ch[c].on || (matches!(m.ch[c].coupling, Coupling::Dc | Coupling::Dc50) && m.ch[c].bw != BW_20M))
     }
 
-    /// One frame of the fast path into the main phosphor map; false if its trigger edge was not found near the
-    /// hardware trigger point. Sparse frames (fewer than 2 samples per column) take the record path instead.
-    fn fast_draw(&mut self, f: &crate::board::Frame) -> bool {
-        let m = &self.m;
+    /// The fast path for the queued frames (every one but the newest): placed on several cores (trigger, columns or
+    /// screen record, statistics of each frame), then the maps filled in bands, channel by band on several cores.
+    /// Returns the frames that counted as triggered.
+    fn fast_draw_all(&mut self, frames: Vec<crate::board::Frame>) -> usize {
+        let frames: Vec<std::sync::Arc<crate::board::Frame>> = frames.into_iter().map(std::sync::Arc::new).collect();
         let (w, h) = (self.ph.w, self.ph.h);
-        let tdiv = m.time_per_div() as f64;
-        let x_per_sample = f.dt / tdiv * w as f64 / HDIV as f64;
-        if x_per_sample > 0.5 || f.envelope || f.roll || f.scan {
-            let fr = std::sync::Arc::new(f.clone());
-            let window = tdiv * HDIV as f64;
-            let rec = crate::board::to_record(&fr, m, 3600, window, m.delay as f64 - window / 2.0);
-            for c in 0..NCH {
-                if self.m.ch[c].on && !rec.ch[c].is_empty() {
-                    self.ph.draw_ex(c, &self.m, (self.m.time_per_div(), self.m.delay), rec.t0, rec.dt, &rec.ch[c], 24, None);
-                }
-            }
-            return rec.triggered;
-        }
-        let src = &f.ch[m.trig_src];
-        // an LA line as the source: the hardware trigger point stands, the analog samples cannot refine it
-        let on_la = m.trig_on_la();
-        // the edge of the set direction nearest the hardware trigger point, up to half a screen away, on the signal smoothed
-        // to one screen column: at decimated rates the hardware point lands near the level on either edge (trigger.md 8)
-        let hyst = m.trig_hyst_div() * m.ch[m.trig_src].volts_per_div();
-        let (rising, either) = (m.slope != Slope::Fall, m.slope == Slope::Either);
-        let half = (tdiv * HDIV as f64 / 2.0 / f.dt) as usize;
-        let col = (1.0 / x_per_sample).floor().clamp(1.0, 256.0) as usize;
-        let edge = if on_la {
-            None
-        } else {
-            let (e, any) = crate::fastdraw::edge_smooth(src, f.pre, crate::board::sw_trig_level(m, f), hyst, rising, either, half, col, |_| true);
-            let k = match (e, any) {
-                (None, _) => 3,
-                (Some(t), _) if (t - f.pre as f64).abs() <= (col + 16) as f64 => 0,
-                (Some(_), Some(n)) if !either && n.rising != rising => 1,
-                (Some(t), _) => {
-                    let d = (t - f.pre as f64).abs();
-                    self.fast_off = (self.fast_off.0 + d, self.fast_off.1.max(d));
-                    2
-                }
-            };
-            self.fast_edges[k] += 1;
-            e
-        };
         let m = &self.m;
-        let ti = edge.unwrap_or(f.pre as f64);
-        let x0 = w as f64 / 2.0 - m.delay as f64 / tdiv * w as f64 / HDIV as f64;
-        let ppd_y = h as f32 / VDIV;
-        for c in 0..NCH {
-            let ch = &m.ch[c];
-            if !ch.on || f.ch[c].is_empty() {
-                continue;
+        // the statistics of every frame for the voltage measurements, once the measurements of the record have set
+        // up their rows
+        let rows_ready = self.mstat.len() == m.meas.len() + m.meas2.len();
+        let fold: [bool; NCH] = std::array::from_fn(|c| rows_ready && m.ch[c].on && m.meas.iter().any(|&(k, mc)| mc == c && crate::fastdraw::Fold::covers(k)));
+        let t0 = std::time::Instant::now();
+        let placed = crate::fastdraw::par_map(&frames, |f| fast_plan(m, w, h, f, fold));
+        let t1 = std::time::Instant::now();
+        let mut trig = 0;
+        for p in &placed {
+            trig += p.triggered as usize;
+            if let FastPlan::Raw { class: Some(k), off, .. } = p.plan {
+                self.fast_edges[k] += 1;
+                if k == 2 {
+                    self.fast_off = (self.fast_off.0 + off, self.fast_off.1.max(off));
+                }
             }
-            let vpd = ch.volts_per_div();
-            let sign = -1.0;
-            let xm = crate::fastdraw::Map { ti, x_per_sample, x0, y_per_volt: sign * ppd_y / vpd, y0: h as f32 / 2.0 - ch.offset / vpd * ppd_y };
-            if m.dots {
-                crate::fastdraw::deposit_dots(&mut self.ph.map[c], w, h, &f.ch[c], &xm, 24);
-            } else {
-                crate::fastdraw::deposit(&mut self.ph.map[c], w, h, &f.ch[c], &xm, 24);
+            if rows_ready {
+                for (i, &(k, c)) in self.m.meas.iter().enumerate() {
+                    if let Some(v) = p.fold[c].and_then(|f| f.get(k)).filter(|v| v.is_finite()) {
+                        self.mstat[i].add(v);
+                    }
+                }
             }
         }
-        // a filtered trigger path (coupling): the hardware point stands where the samples show no crossing
-        edge.is_some() || on_la || m.trig_coupling() != TrigCoup::Dc
+        // the maps: each channel's frames collected as differences column by column (`fastdraw::diff_span`), in bands
+        // of columns so one channel alone also spreads over the cores, then summed into the map once
+        let m = &self.m;
+        let on: Vec<usize> = (0..NCH).filter(|&c| m.ch[c].on).collect();
+        for &c in &on {
+            if self.acc_t[c].len() != w * (h + 1) {
+                self.acc_t[c] = vec![0; w * (h + 1)];
+            }
+        }
+        let bands = if frames.len() < 2 || on.is_empty() { 1 } else { (crate::fastdraw::helpers() + 1).div_ceil(on.len()) };
+        let band_cols = w.div_ceil(bands).max(1);
+        let mut jobs: Vec<(usize, usize, &mut [u16])> = Vec::new();
+        for (c, acc) in self.acc_t.iter_mut().enumerate() {
+            if on.contains(&c) {
+                jobs.extend(acc.chunks_mut(band_cols * (h + 1)).enumerate().map(|(b, band)| (c, b * band_cols, band)));
+            }
+        }
+        crate::fastdraw::par_each(jobs, |(c, c_lo, band)| {
+            for (f, p) in frames.iter().zip(&placed) {
+                fast_deposit_t(m, w, h, c, band, c_lo, f, &p.plan);
+            }
+        });
+        // the rows the frames touched, per channel: only those are added (a trace covers a part of the height)
+        let rows: [(usize, usize); NCH] = std::array::from_fn(|c| {
+            placed.iter().fold((usize::MAX, 0), |(a, b), p| {
+                let (x, y) = match &p.plan {
+                    FastPlan::Raw { spans, .. } => spans[c].as_ref().map_or((0, h), crate::fastdraw::span_rows),
+                    // a screen record: its points' rows (a segment between two points stays between them)
+                    FastPlan::Rec(rec) => rec_rows(m, h, c, &rec.ch[c]),
+                };
+                (a.min(x), b.max(y))
+            })
+        });
+        let t2 = std::time::Instant::now();
+        let pairs: Vec<(usize, &mut Vec<u16>, &mut Vec<u16>)> = self.ph.map.iter_mut().zip(self.acc_t.iter_mut()).enumerate().filter(|(c, _)| on.contains(c)).map(|(c, (a, b))| (c, a, b)).collect();
+        crate::fastdraw::par_each(pairs, |(c, map, acc)| crate::fastdraw::fold_t(map, acc, w, h, rows[c].0..rows[c].1));
+        let (a, b) = ((t1 - t0).as_secs_f32() * 1e3, t1.elapsed().as_secs_f32() * 1e3);
+        self.t_fast_ab.0 += 0.05 * (a - self.t_fast_ab.0);
+        self.t_fast_ab.1 += 0.05 * (b - self.t_fast_ab.1);
+        self.t_fast_fold += 0.05 * (t2.elapsed().as_secs_f32() * 1e3 - self.t_fast_fold);
+        self.fast_n += 0.05 * (frames.len() as f32 - self.fast_n);
+        trig
     }
 
     // ------------------------------------------------------------------ rendering
@@ -7377,6 +7476,163 @@ fn draw_slope1(cv: &mut Canvas, x: i32, y: i32, s: Slope, col: Rgb) {
     }
 }
 
+/// The fast path's take for the next screen after drawing `n` frames in `ms` with `budget` ms (`Ui::fast_max`).
+fn fast_take_next(take: f32, n: usize, ms: f32, budget: f32) -> f32 {
+    let est = n as f32 * budget / ms;
+    let limited = n >= (take as usize).clamp(4, crate::board::QUEUE_MAX);
+    if ms > budget || (limited && est > take) {
+        (take + 0.5 * (est - take)).clamp(4.0, crate::board::QUEUE_MAX as f32)
+    } else {
+        take
+    }
+}
+
+/// What the fast display path does with one frame (`fast_plan`).
+pub enum FastPlan {
+    /// sparse views (fewer than 2 samples a column), envelopes, roll and scan: a screen record, drawn as a trace
+    /// (made here, so the interpolation is spread over the frames, not the channels)
+    Rec(crate::wave::Record),
+    /// dense views: the raw samples with the trigger at sample `ti`; `class`: the `Ui::fast_edges` index (None: the
+    /// source is an LA line), `off`: how far the edge was from the hardware point (class 2); per channel the columns'
+    /// spans (None: dots, drawn sample by sample)
+    Raw { ti: f64, class: Option<usize>, off: f64, spans: [Option<crate::fastdraw::Spans>; NCH] },
+}
+
+/// One frame placed by `fast_plan`: how to draw it, whether it counts as triggered (false if its trigger edge was not
+/// found near the hardware trigger point), and per channel the voltage values of the statistics (where wanted).
+pub struct FastFrame {
+    pub plan: FastPlan,
+    pub triggered: bool,
+    pub fold: [Option<crate::fastdraw::Fold>; NCH],
+}
+
+/// Where channel `c` of a dense frame lands on the `w` x `h` map with the trigger at sample `ti`.
+fn raw_map(m: &Model, w: usize, h: usize, c: usize, f: &crate::board::Frame, ti: f64) -> crate::fastdraw::Map {
+    let ch = &m.ch[c];
+    let tdiv = m.time_per_div() as f64;
+    let x_per_sample = f.dt / tdiv * w as f64 / HDIV as f64;
+    let x0 = w as f64 / 2.0 - m.delay as f64 / tdiv * w as f64 / HDIV as f64;
+    let ppd_y = h as f32 / VDIV;
+    let vpd = ch.volts_per_div();
+    crate::fastdraw::Map { ti, x_per_sample, x0, y_per_volt: -ppd_y / vpd, y0: h as f32 / 2.0 - ch.offset / vpd * ppd_y }
+}
+
+/// One frame of the fast path placed on the screen (`w` x `h` map): the trigger, the columns of a dense frame or the
+/// screen record of a sparse one, and the statistics of the channels in `fold`. Touches nothing but the frame, so the
+/// frames of a batch are placed on several cores; this is where most of the work is.
+pub fn fast_plan(m: &Model, w: usize, h: usize, f: &std::sync::Arc<crate::board::Frame>, fold: [bool; NCH]) -> FastFrame {
+    let tdiv = m.time_per_div() as f64;
+    let window = tdiv * HDIV as f64;
+    let t_first = m.delay as f64 - window / 2.0;
+    let x_per_sample = f.dt / tdiv * w as f64 / HDIV as f64;
+    if x_per_sample > 0.5 || f.envelope || f.roll || f.scan {
+        // the record's 3600 points: fewer thin out the picture of a fast signal (at 8 samples a period, two points a
+        // column lit a fifth fewer pixels than 3600, and those a sixth fewer than a nearly continuous curve)
+        let rec = crate::board::to_record(f, m, 3600, window, t_first);
+        // the statistics on the screen record, as the measurements of a sparse record
+        let fold = std::array::from_fn(|c| (fold[c] && m.ch[c].on).then(|| crate::fastdraw::Fold::of(&rec.ch[c])));
+        let triggered = rec.triggered;
+        return FastFrame { plan: FastPlan::Rec(rec), triggered, fold };
+    }
+    let src = &f.ch[m.trig_src];
+    // an LA line as the source: the hardware trigger point stands, the analog samples cannot refine it
+    let on_la = m.trig_on_la();
+    // the edge of the set direction nearest the hardware trigger point, up to half a screen away, on the signal smoothed
+    // to one screen column: at decimated rates the hardware point lands near the level on either edge (trigger.md 8)
+    let hyst = m.trig_hyst_div() * m.ch[m.trig_src].volts_per_div();
+    let (rising, either) = (m.slope != Slope::Fall, m.slope == Slope::Either);
+    let half = (window / 2.0 / f.dt) as usize;
+    let col = (1.0 / x_per_sample).floor().clamp(1.0, 256.0) as usize;
+    let (edge, class, off) = if on_la {
+        (None, None, 0.0)
+    } else {
+        let (e, any) = crate::fastdraw::edge_smooth(src, f.pre, crate::board::sw_trig_level(m, f), hyst, rising, either, half, col, |_| true);
+        let (k, d) = match (e, any) {
+            (None, _) => (3, 0.0),
+            (Some(t), _) if (t - f.pre as f64).abs() <= (col + 16) as f64 => (0, 0.0),
+            (Some(_), Some(n)) if !either && n.rising != rising => (1, 0.0),
+            (Some(t), _) => (2, (t - f.pre as f64).abs()),
+        };
+        (e, Some(k), d)
+    };
+    let ti = edge.unwrap_or(f.pre as f64);
+    let used = |c: usize| m.ch[c].on && !f.ch[c].is_empty();
+    let spans = std::array::from_fn(|c| (used(c) && !m.dots).then(|| crate::fastdraw::spans(w, h, &f.ch[c], &raw_map(m, w, h, c, f, ti))));
+    // the statistics on the samples of the screen window, as the measurements of a dense record
+    let fold = std::array::from_fn(|c| {
+        (fold[c] && used(c)).then(|| {
+            let v = &f.ch[c];
+            let i0 = ((ti + t_first / f.dt).floor().max(0.0) as usize).min(v.len());
+            let i1 = ((ti + (t_first + window) / f.dt).ceil().max(0.0) as usize).min(v.len());
+            crate::fastdraw::Fold::of(&v[i0..i1.max(i0)])
+        })
+    });
+    // a filtered trigger path (coupling): the hardware point stands where the samples show no crossing
+    let triggered = edge.is_some() || on_la || m.trig_coupling() != TrigCoup::Dc;
+    FastFrame { plan: FastPlan::Raw { ti, class, off, spans }, triggered, fold }
+}
+
+/// The rows (first, last + 1) the points `v` of channel `c` of a screen record fall on, within a map `h` high.
+fn rec_rows(m: &Model, h: usize, c: usize, v: &[f32]) -> (usize, usize) {
+    let ch = &m.ch[c];
+    let (vpd, ppd_y) = (ch.volts_per_div(), h as f32 / VDIV);
+    let (lo, hi) = v.iter().filter(|x| x.is_finite()).fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &x| (a.min(x), b.max(x)));
+    if lo > hi {
+        return (usize::MAX, 0);
+    }
+    let y = |val: f32| h as f32 / 2.0 - (val + ch.offset) / vpd * ppd_y;
+    // rounded as `wave::trace_columns`, one row of slack each side
+    let (a, b) = (y(hi).round() - 1.0, y(lo).round() + 1.0);
+    (a.max(0.0) as usize, (b.max(-1.0) + 1.0).min(h as f32) as usize)
+}
+
+/// Channel `c` of a placed frame into a band of its collected differences (`fastdraw::diff_span`): the columns
+/// `c_lo ..` of a map `w` x `h`, `h + 1` entries each.
+#[allow(clippy::too_many_arguments)]
+pub fn fast_deposit_t(m: &Model, w: usize, h: usize, c: usize, band: &mut [u16], c_lo: usize, f: &crate::board::Frame, p: &FastPlan) {
+    if !m.ch[c].on {
+        return;
+    }
+    match p {
+        FastPlan::Rec(rec) => {
+            if !rec.ch[c].is_empty() {
+                let c_hi = (c_lo + band.len() / (h + 1)) as i32;
+                crate::wave::trace_columns(w, h, c, m, (m.time_per_div(), m.delay), rec.t0, rec.dt, &rec.ch[c], 24, None, (c_lo as i32, c_hi), |cx, r0, r1, wt| {
+                    crate::fastdraw::diff_span(band, (cx as usize - c_lo) * (h + 1), r0 as usize, r1 as usize, wt);
+                });
+            }
+        }
+        FastPlan::Raw { ti, spans, .. } => match &spans[c] {
+            Some(s) => crate::fastdraw::add_spans_t(band, h, c_lo, s, 24),
+            None if !f.ch[c].is_empty() => crate::fastdraw::deposit_dots_t(band, h, c_lo, &f.ch[c], &raw_map(m, w, h, c, f, *ti), 24),
+            None => {}
+        },
+    }
+}
+
+/// Channel `c` of a placed frame into the rows `r_lo` .. `r_lo + band.len() / w` of that channel's map (`w` x `h`),
+/// held in `band` (the whole map: `r_lo` 0): one frame after the other straight into the row-major map, the tests'
+/// reference for the fast path's drawing.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub fn fast_deposit(m: &Model, w: usize, h: usize, c: usize, band: &mut [u16], r_lo: usize, f: &crate::board::Frame, p: &FastPlan) {
+    if !m.ch[c].on {
+        return;
+    }
+    match p {
+        FastPlan::Rec(rec) => {
+            if !rec.ch[c].is_empty() {
+                crate::wave::draw_trace(band, w, h, r_lo, c, m, (m.time_per_div(), m.delay), rec.t0, rec.dt, &rec.ch[c], 24, None);
+            }
+        }
+        FastPlan::Raw { ti, spans, .. } => match &spans[c] {
+            Some(s) => crate::fastdraw::add_spans(band, w, r_lo, s, 24),
+            None if !f.ch[c].is_empty() => crate::fastdraw::deposit_dots_band(band, w, r_lo, h, &f.ch[c], &raw_map(m, w, h, c, f, *ti), 24),
+            None => {}
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::axis_label;
@@ -8195,7 +8451,7 @@ mod tests {
         let (n, dt, pre) = (12_500usize, 0.8e-9, 6250usize);
         let frame = |seq: u64| {
             let v: Vec<f32> = (0..n).map(|k| (2.0 * std::f64::consts::PI * 200e3 * (k as f64 - pre as f64 + 0.3) * dt).sin() as f32).collect();
-            crate::board::Frame { seq, dt, pre, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.25e9, n), stamp: 0, la: None }
+            crate::board::Frame { seq, dt, pre, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.25e9, n), stamp: 0, la: None, fixed_ti: None }
         };
         shared.lock().unwrap().queue.extend((1..=10).map(frame));
         let mut ui = Ui::new(Source::Hw { shared: shared.clone(), seen: 0 });
@@ -8214,6 +8470,176 @@ mod tests {
         // averaging needs every record: back to the record path
         ui.m.acq = AcqMode::Average;
         assert!(!ui.fast_ok());
+    }
+
+    /// The fast path on several cores draws the same maps as one frame after the other, dense and sparse, four
+    /// channels; with it on, the record loop takes one frame a screen and leaves the rest of the queue to it.
+    #[test]
+    fn fast_path_on_several_cores_draws_as_one_by_one() {
+        use super::*;
+        for &(tdiv, n, dt) in &[(1e-6, 12_500usize, 0.8e-9), (1e-7, 1_000, 3.2e-9)] {
+            let pre = n / 2;
+            let frame = |seq: u64| {
+                let ch: [Vec<f32>; NCH] = std::array::from_fn(|c| {
+                    (0..n).map(|k| (2.0 * std::f64::consts::PI * 2e6 * (c + 1) as f64 * (k as f64 - pre as f64 + 0.1 * seq as f64) * dt).sin() as f32).collect()
+                });
+                crate::board::Frame { seq, dt, pre, ch, roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, n), stamp: 0, la: None, fixed_ti: None }
+            };
+            let shared: crate::board::HwShared = Default::default();
+            let mut ui = Ui::new(Source::Hw { shared: shared.clone(), seen: 0 });
+            ui.m.tscale = tscales().iter().position(|&x| (x as f64 - tdiv).abs() < tdiv * 1e-3).unwrap();
+            ui.m.trig_level = 0.0;
+            for c in 0..NCH {
+                ui.m.ch[c].on = true;
+                ui.m.ch[c].offset = 0.0;
+            }
+            assert!(ui.fast_ok());
+            let frames: Vec<_> = (1..=40).map(frame).collect();
+            let (w, h) = (ui.ph.w, ui.ph.h);
+            let mut want = crate::wave::Phosphor::new(w, h);
+            for f in &frames {
+                let f = std::sync::Arc::new(f.clone());
+                let p = fast_plan(&ui.m, w, h, &f, [false; NCH]);
+                for c in 0..NCH {
+                    fast_deposit(&ui.m, w, h, c, &mut want.map[c], 0, &f, &p.plan);
+                }
+            }
+            ui.ph.clear();
+            assert_eq!(ui.fast_draw_all(frames.clone()), 40);
+            for c in 0..NCH {
+                assert!(want.map[c].iter().any(|&x| x > 0), "{} s/div CH{}: nothing drawn", tdiv, c + 1);
+                assert!(ui.ph.map[c] == want.map[c], "{} s/div CH{}: maps differ", tdiv, c + 1);
+            }
+            // through `step`: 41 queued frames, 40 by the fast path, the newest as the record; nothing left
+            shared.lock().unwrap().queue.extend((1..=41).map(frame));
+            ui.step(0.05);
+            assert_eq!(ui.wfm_total, 41);
+            assert_eq!(ui.records, 1);
+            assert!(shared.lock().unwrap().queue.is_empty());
+            // the thread is told how many of a batch to decode; the record path wants them all
+            assert_eq!(shared.lock().unwrap().take, ui.fast_max() + 1);
+            ui.m.acq = AcqMode::Average;
+            ui.step(0.05);
+            assert_eq!(shared.lock().unwrap().take, 0);
+            ui.m.acq = AcqMode::Normal;
+        }
+    }
+
+    /// One channel in bands of rows on several cores, lines and dots: the same map as the whole map at once.
+    #[test]
+    fn fast_path_bands_draw_as_the_whole_map() {
+        use super::*;
+        for &(tdiv, n, dt) in &[(1e-6, 12_500usize, 0.8e-9), (1e-7, 1_000, 3.2e-9)] {
+            for dots in [false, true] {
+                let pre = n / 2;
+                let frames: Vec<crate::board::Frame> = (1..=24u64)
+                    .map(|seq| {
+                        // a sine with a frame-dependent phase and a spike, off the screen at the top in some frames
+                        let mut v: Vec<f32> = (0..n).map(|k| 3.0 * (2.0 * std::f64::consts::PI * 1.3e6 * (k as f64 - pre as f64 + 0.37 * seq as f64) * dt).sin() as f32).collect();
+                        v[pre + 7] = if seq % 3 == 0 { 9.0 } else { -1.5 };
+                        crate::board::Frame { seq, dt, pre, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, n), stamp: 0, la: None, fixed_ti: None }
+                    })
+                    .collect();
+                let mut ui = Ui::new(Source::Hw { shared: Default::default(), seen: 0 });
+                ui.m.tscale = tscales().iter().position(|&x| (x as f64 - tdiv).abs() < tdiv * 1e-3).unwrap();
+                ui.m.trig_level = 0.0;
+                ui.m.ch[0].offset = 0.0;
+                ui.m.dots = dots;
+                let (w, h) = (ui.ph.w, ui.ph.h);
+                let mut want = vec![0u16; w * h];
+                for f in &frames {
+                    let f = std::sync::Arc::new(f.clone());
+                    let p = fast_plan(&ui.m, w, h, &f, [false; NCH]);
+                    fast_deposit(&ui.m, w, h, 0, &mut want, 0, &f, &p.plan);
+                }
+                ui.ph.clear();
+                ui.fast_draw_all(frames);
+                assert!(want.iter().filter(|&&x| x > 0).count() > w / 2, "{} s/div dots {}: little drawn", tdiv, dots);
+                assert!(ui.ph.map[0] == want, "{} s/div dots {}: maps differ", tdiv, dots);
+            }
+        }
+    }
+
+    /// Statistics of the voltage measurements over every frame of the fast path, not only over the records; the
+    /// values of one frame equal what the measurements give on it.
+    #[test]
+    fn statistics_take_every_frame_of_the_fast_path() {
+        use super::*;
+        let (n, dt, pre) = (12_500usize, 0.8e-9, 6250usize);
+        // frame k: a sine of amplitude 1 + k/10 around 0.25 V
+        let frame = |seq: u64| {
+            let a = 1.0 + seq as f64 / 10.0;
+            let v: Vec<f32> = (0..n).map(|k| (0.25 + a * (2.0 * std::f64::consts::PI * 2e6 * (k as f64 - pre as f64) * dt).sin()) as f32).collect();
+            crate::board::Frame { seq, dt, pre, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, n), stamp: 0, la: None, fixed_ti: None }
+        };
+        let shared: crate::board::HwShared = Default::default();
+        let mut ui = Ui::new(Source::Hw { shared: shared.clone(), seen: 0 });
+        ui.m.tscale = tscales().iter().position(|&x| (x - 1e-6).abs() < 1e-9).unwrap();
+        ui.m.trig_level = 0.0;
+        ui.m.ch[0].offset = 0.0;
+        ui.m.meas = vec![(Meas::Vpp, 0), (Meas::Vavg, 0), (Meas::Vrms, 0), (Meas::StdDev, 0), (Meas::Freq, 0)];
+        ui.m.meas2.clear();
+        // the first record sets up the rows
+        shared.lock().unwrap().queue.push_back(frame(0));
+        ui.step(0.05);
+        assert_eq!(ui.mstat.len(), 5);
+        assert_eq!(ui.mstat[0].n, 1);
+        // 20 more: 19 by the fast path, the newest as the record
+        shared.lock().unwrap().queue.extend((1..=20).map(frame));
+        ui.step(0.05);
+        assert_eq!(ui.mstat[0].n, 21, "Pk-pk over every frame");
+        assert_eq!(ui.mstat[4].n, 2, "Freq only over the records");
+        // the largest Pk-pk is that of frame 20 (amplitude 3), the smallest that of frame 0
+        assert!((ui.mstat[0].max - 6.0).abs() < 0.01 && (ui.mstat[0].min - 2.0).abs() < 0.01, "{} {}", ui.mstat[0].min, ui.mstat[0].max);
+        // a frame's fold gives the values of the measurements on the same samples
+        let f = frame(7);
+        let fo = crate::fastdraw::Fold::of(&f.ch[0][1000..9000]);
+        let an = oos_dsp::measure::analyze(&f.ch[0][1000..9000], dt);
+        for k in [Meas::Vmax, Meas::Vmin, Meas::Vpp, Meas::Vavg, Meas::Vrms, Meas::StdDev, Meas::VrmsAc] {
+            let (a, b) = (fo.get(k).unwrap(), an.get(k));
+            assert!((a - b).abs() < 1e-5, "{:?}: fold {} measure {}", k, a, b);
+        }
+        assert!(fo.get(Meas::Freq).is_none());
+    }
+
+    /// The fast path takes what fits into its time budget: the newest frames, the older ones are counted as dropped.
+    #[test]
+    fn fast_path_keeps_to_its_budget() {
+        use super::*;
+        let shared: crate::board::HwShared = Default::default();
+        let frame = |seq: u64| crate::board::Frame { seq, dt: 0.8e-9, pre: 50, ch: [vec![0.0; 100], Vec::new(), Vec::new(), Vec::new()], ..Default::default() };
+        shared.lock().unwrap().queue.extend((1..=100).map(frame));
+        let mut src = Source::Hw { shared: shared.clone(), seen: 0 };
+        let got = src.drain_newest(30);
+        assert_eq!(got.iter().map(|f| f.seq).collect::<Vec<_>>(), (70..=99).collect::<Vec<_>>());
+        let g = shared.lock().unwrap();
+        assert_eq!((g.queue.len(), g.queue[0].seq, g.dropped), (1, 100, 69));
+        drop(g);
+        let mut ui = Ui::new(Source::Demo { t: 0.0 });
+        assert_eq!(ui.fast_max(), crate::board::QUEUE_MAX);
+        // nothing else in the screen: 28 ms; a slow screen leaves at least 5
+        assert_eq!(ui.fast_budget(), 28.0);
+        ui.t_render = 40.0;
+        assert_eq!(ui.fast_budget(), 5.0);
+        // the take settles where the time meets the budget, with a fixed 3 ms a screen and 0.3 ms a frame
+        ui.t_render = 0.0;
+        // a queue always fuller than the take, 3 ms a screen and 0.3 ms a frame: settles where the time meets 28 ms
+        let mut take = crate::board::QUEUE_MAX as f32;
+        for _ in 0..40 {
+            let n = (take as usize).clamp(4, crate::board::QUEUE_MAX);
+            take = fast_take_next(take, n, 3.0 + 0.3 * n as f32, 28.0);
+        }
+        assert!((take - 83.3).abs() < 1.0, "{}", take);
+        // from below, too
+        let mut low = 4.0;
+        for _ in 0..40 {
+            let n = (low as usize).clamp(4, crate::board::QUEUE_MAX);
+            low = fast_take_next(low, n, 3.0 + 0.3 * n as f32, 28.0);
+        }
+        assert!((low - 83.3).abs() < 1.0, "{}", low);
+        // a screen with a few frames (a burst still to come) leaves the take alone; one over the budget lowers it
+        assert_eq!(fast_take_next(take, 6, 4.8, 28.0), take);
+        assert!(fast_take_next(take, 6, 40.0, 28.0) < take);
     }
 
     /// The trigger level line shows for a moment after the level changes by any way (not only while dragging it);
