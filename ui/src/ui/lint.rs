@@ -1456,16 +1456,16 @@ fn a_long_results_list_scrolls_by_touch() {
     u.render(&mut cv);
     let r = u.pane_rect();
     let (fit, _) = Ui::results_fit(r, 14);
-    let [up, down] = Ui::results_scroll_btns(r);
-    u.tap(down.x + 5, down.y + 5);
-    assert_eq!(u.pn.top, fit.min(14 - fit));
-    u.tap(down.x + 5, down.y + 5);
+    // the scroll bar: the thumb to the bottom is the end of the list, a tap at the top of the track the start
+    let (bar, _) = u.results_bar().expect("Results pane");
+    assert!(bar.needed());
+    let th = bar.thumb();
+    crate::cmd::run(&mut u, &format!("drag {} {} {} {}", th.x + th.w / 2, th.y + 5, th.x + th.w / 2, bar.track.y + bar.track.h + 40));
     assert_eq!(u.pn.top, 14 - fit);
     u.render(&mut cv);
-    u.tap(up.x + 5, up.y + 5);
-    assert!(u.pn.top < 14 - fit);
+    crate::cmd::run(&mut u, &format!("drag {0} {1} {0} {1}", bar.track.x + bar.track.w / 2, bar.track.y + 2));
+    assert_eq!(u.pn.top, 0, "a press on the track jumps there");
     // a finger up the table goes down the list
-    u.pn.top = 0;
     crate::cmd::run(&mut u, &format!("drag 300 {} 300 {}", r.y + r.h - 10, r.y + 50));
     assert!(u.pn.top > 0);
     // still there after the list got shorter

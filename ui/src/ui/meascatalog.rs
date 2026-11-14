@@ -69,8 +69,8 @@ struct Lay {
     view: Rect,
     groups: Vec<Hit>,
     items: Vec<Hit>,
-    scroll_up: Option<Rect>,
-    scroll_down: Option<Rect>,
+    /// the scroll bar's track beside the list
+    bar: Rect,
     content: i32,
 }
 
@@ -158,13 +158,8 @@ impl Ui {
             let nrows = list.len().div_ceil(cols as usize) as i32;
             y += nrows * (bh + gap) + 4;
         }
-        let (scroll_up, scroll_down) = if y > view.h {
-            let x = view.x + view.w + 6;
-            (Some(Rect::new(x, view.y, 40, 42)), Some(Rect::new(x, view.y + view.h - 42, 40, 42)))
-        } else {
-            (None, None)
-        };
-        Lay { r, close, back, settings, selected, gate, tabs, preview, mark, sources, view, groups, items, scroll_up, scroll_down, content: y }
+        let bar = Rect::new(view.x + view.w + 6, view.y, scroll::BAR_W, view.h);
+        Lay { r, close, back, settings, selected, gate, tabs, preview, mark, sources, view, groups, items, bar, content: y }
     }
 
     #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
@@ -179,7 +174,7 @@ impl Ui {
         lay.items.iter().find_map(|it| {
             let c = cat_from(it.n)?;
             let Kind::Standard(mk) = c.kind else { return None };
-            (mk == k).then(|| self.catalog_set_on(screen_rect(lay.view, it.r, self.cat_scroll), c)).flatten()
+            (mk == k).then(|| self.catalog_set_on(screen_rect(lay.view, it.r, self.cat_top()), c)).flatten()
         })
     }
 
@@ -187,7 +182,7 @@ impl Ui {
     #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub(super) fn catalog_group_rect(&self, group: usize) -> Option<Rect> {
         let lay = self.catalog_lay();
-        lay.groups.iter().find(|g| g.n as usize == group).map(|g| screen_rect(lay.view, g.r, self.cat_scroll))
+        lay.groups.iter().find(|g| g.n as usize == group).map(|g| screen_rect(lay.view, g.r, self.cat_top()))
     }
 
     #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
@@ -195,9 +190,26 @@ impl Ui {
         self.catalog_lay().view
     }
 
-    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
-    pub(super) fn catalog_scroll_down(&self) -> Option<Rect> {
-        self.catalog_lay().scroll_down
+    /// The tile `id` on the screen (tests).
+    #[cfg(test)]
+    pub(super) fn catalog_tile_rect(&self, id: u16) -> Option<Rect> {
+        let lay = self.catalog_lay();
+        lay.items.iter().find(|it| it.n == id).map(|it| screen_rect(lay.view, it.r, self.cat_top()))
+    }
+
+    /// The scroll bar of the page and its list, while the page is open.
+    pub(super) fn catalog_bar(&self) -> Option<(scroll::Bar, Rect)> {
+        if !(self.menu_open && self.menu == MenuId::MeasAdd) {
+            return None;
+        }
+        let lay = self.catalog_lay();
+        Some((scroll::Bar { track: lay.bar, total: lay.content, shown: lay.view.h, pos: self.cat_scroll }, lay.view))
+    }
+
+    /// Where the list stands, kept in range (a folded group may have made it shorter).
+    pub(super) fn cat_top(&self) -> i32 {
+        let lay = self.catalog_lay();
+        self.cat_scroll.clamp(0, (lay.content - lay.view.h).max(0))
     }
 
     fn catalog_set_on(&self, rect: Rect, c: Cat) -> Option<Rect> {
@@ -296,7 +308,7 @@ impl Ui {
             chevron_down(cv, hit.r.x + hit.r.w - 16, hit.r.y + hit.r.h / 2 - 3, DIM);
         }
         cv.set_clip(lay.view);
-        let scroll = self.cat_scroll;
+        let scroll = self.cat_top();
         let open = self.cat_open[self.cat_tab as usize];
         for g in &lay.groups {
             let rect = screen_rect(lay.view, g.r, scroll);
@@ -338,14 +350,7 @@ impl Ui {
             }
         }
         cv.no_clip();
-        for (rect, up) in [(lay.scroll_up, true), (lay.scroll_down, false)].into_iter().filter_map(|(r, up)| r.map(|r| (r, up))) {
-            btn(cv, rect, BTN, BTN_BORDER);
-            if up {
-                cv.text_in(&f.s, rect, 1, "Up", DIM);
-            } else {
-                cv.text_in(&f.s, rect, 1, "Down", DIM);
-            }
-        }
+        scroll::Bar { track: lay.bar, total: lay.content, shown: lay.view.h, pos: self.cat_scroll }.draw(cv);
     }
 
     fn draw_mark(&self, cv: &mut Canvas, r: Rect, mark: Mark, col: Rgb) {
@@ -437,17 +442,12 @@ impl Ui {
                 return true;
             }
         }
-        if lay.scroll_up.is_some_and(|r| r.contains(x, y)) {
-            self.cat_scroll = self.cat_scroll.saturating_sub(80);
-            return true;
-        }
-        if lay.scroll_down.is_some_and(|r| r.contains(x, y)) {
-            self.cat_scroll += 80;
-            self.clamp_scroll();
+        if lay.bar.contains(x, y) {
             return true;
         }
         if lay.view.contains(x, y) {
-            let cy = y - lay.view.y + self.cat_scroll;
+            let top = self.cat_top();
+            let cy = y - lay.view.y + top;
             let cx = x - lay.view.x;
             for g in &lay.groups {
                 if g.r.contains(cx, cy) {
@@ -455,16 +455,17 @@ impl Ui {
                     let bit = 1u16 << g.n;
                     let open = &mut self.cat_open[self.cat_tab as usize];
                     *open = if *open & bit != 0 { 0 } else { bit };
+                    // an opened group comes to the top of the list; a folded one leaves the list where it can stand
                     if self.cat_open[self.cat_tab as usize] & bit != 0 {
                         self.cat_scroll = g.r.y;
-                        self.clamp_scroll();
                     }
+                    self.clamp_scroll();
                     return true;
                 }
             }
             for it in &lay.items {
                 if it.r.contains(cx, cy) {
-                    let rect = screen_rect(lay.view, it.r, self.cat_scroll);
+                    let rect = screen_rect(lay.view, it.r, top);
                     if let Some(c) = cat_from(it.n) {
                         if let Some(set) = self.catalog_set_on(rect, c) {
                             if set.contains(x, y) {
@@ -497,7 +498,7 @@ impl Ui {
             .ok_or_else(|| format!("{:?} is in no group", name.trim()))?;
         self.cat_tab = tab;
         self.cat_open[tab as usize] = 1 << g;
-        self.cat_scroll = self.catalog_group_rect(g).map_or(0, |r| r.y - self.catalog_view().y + self.cat_scroll);
+        self.cat_scroll = self.catalog_group_rect(g).map_or(0, |r| r.y - self.catalog_view().y + self.cat_top());
         self.clamp_scroll();
         self.cat_sel = c.id;
         self.catalog_add(c);
@@ -630,7 +631,7 @@ mod integration_tests {
         // one tap on a tile adds it on the source, a second tap removes it
         let mut ui=Ui::new(Source::Demo{t:0.0}); ui.m.meas.clear();
         ui.key(key::MEASURE);
-        let rect_of=|ui:&Ui,c:Cat| { let lay=ui.catalog_lay(); lay.items.iter().find(|it|it.n==c.id).map(|it|screen_rect(lay.view,it.r,ui.cat_scroll)).unwrap() };
+        let rect_of=|ui:&Ui,c:Cat| { let lay=ui.catalog_lay(); lay.items.iter().find(|it|it.n==c.id).map(|it|screen_rect(lay.view,it.r,ui.cat_top())).unwrap() };
         let r=rect_of(&ui,tile(measures::std_id(Meas::Vpp))); tap(&mut ui,Rect::new(r.x,r.y,r.w/2,r.h));
         assert_eq!(ui.m.meas,vec![(Meas::Vpp,WaveId::Ch(0))]);
         assert_eq!(ui.cat_sel,measures::std_id(Meas::Vpp),"the description follows the tap");
@@ -702,7 +703,7 @@ mod integration_tests {
         assert_eq!(ui.pick.unwrap().it,Item::CatSourceD);ui.close_picker();
         for tab in 0..CATEGORIES.len() {
             ui.cat_tab=tab as u8;let lay=ui.catalog_lay();
-            for button in [lay.scroll_up,lay.scroll_down].into_iter().flatten() {assert!(button.w>=40 && button.h>=40);}
+            assert!(lay.bar.w>=40 && lay.bar.h>=80,"a scroll bar that a finger can hold");
             assert!(!overlaps(lay.gate,lay.settings) && lay.tabs.iter().all(|t|!overlaps(*t,lay.selected)));
         }
     }

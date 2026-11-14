@@ -811,8 +811,8 @@ mod tests {
                     break;
                 }
             }
-            let down = u.catalog_scroll_down().expect("scroll");
-            u.tap(down.x + 4, down.y + 4);
+            let next = u.cat_scroll + 80;
+            u.scroll_to(super::scroll::List::Catalog, next);
         }
         let g = u.cfg_geom().expect("Burst has a settings dialog");
         assert!(g.refs.w > 0 && g.idle_m.is_some(), "Burst keeps its own idle");
