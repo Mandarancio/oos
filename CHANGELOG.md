@@ -4,9 +4,13 @@
 
 Merged from the forks on GitHub (PR #7 by ichnograph, DHO804; PR #8 by W4R/wasimlhr, OOS Plus), with main since
 0.1.12. Their work is credited in the commits. Not yet on a release; host tests pass, the device test is open.
+PR #9 to #13 (W4R/wasimlhr, topics cut from PR #8) are merged as well: their functions were in the tree with PR #8,
+new from them are the Cursor B source row and the power measurement tests.
 
 New:
 
+- Cursor > Cursor B source (Track mode): cursor B reads another channel or reference than cursor A (PR #10; SCPI
+  had it already).
 - Short time bases draw every frame they can: the frames of a screen are placed on the little cores and added as
   differences per band, the hardware thread decodes only the frames the screen takes, a time budget keeps 27 to 30
   frames a second (4 channels at 100 ns/div: 29.5 instead of 3.5). Max, Min, Pk-pk, Mean, RMS and Std dev count every
