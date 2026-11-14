@@ -1,5 +1,60 @@
 # Changes
 
+## Unreleased
+
+Merged from the forks on GitHub (PR #7 by ichnograph, DHO804; PR #8 by W4R/wasimlhr, OOS Plus), with main since
+0.1.12. Their work is credited in the commits. Not yet on a release; host tests pass, the device test is open.
+
+New:
+
+- Short time bases draw every frame they can: the frames of a screen are placed on the little cores and added as
+  differences per band, the hardware thread decodes only the frames the screen takes, a time budget keeps 27 to 30
+  frames a second (4 channels at 100 ns/div: 29.5 instead of 3.5). Max, Min, Pk-pk, Mean, RMS and Std dev count every
+  frame drawn.
+- STOP keeps the whole record in the scope's memory and reads it again for every view: zoom out to see all of it, zoom
+  in or move the delay anywhere for every sample of that part.
+- Acquire > ADC cores: Matched (default) takes the offset pattern of the eight interleaved ADC cores off every frame
+  (spur at 156.25 MHz: -52 to -77..-80 dBc with one channel); Raw shows the words as they come. `:ACQuire:CORes`.
+  Acquire says "Aliasing: above <half the rate>, Peak shows it" while the rate is below the ADC's.
+- Trigger level: no mark with AC or LF reject coupling; with DC a dashed line for 1.5 s after every change.
+- From PR #7 (opt-in through `/oos/system.conf` unless noted): hardware segments with trigger time stamps (Acquire >
+  HW segments), hardware averaging (Acquire > HW average), the trigger status from the SCU (default on), auto set-up
+  levels from the FPGA measure unit (default on), hardware DVM, hardware mask and zone tests, UART/SPI/I2C hardware
+  triggers (Trigger > Bus), System > AUX out (trigger out, pass/fail), live min/max compression in the FPGA, deep-memory
+  measurements from raw reads, an ADC core offset trim, `:CHANnel<n>:VERNier`, auto noise reject, batch pipeline,
+  core placement, arming ahead, MSI for the DMA driver.
+- SSH (Dropbear, PR #7): System > Network > Remote services > SSH and SSH settings (password, trusted keys from a USB
+  stick, host key); off by default and only with `net.allow` and the firewall. telnet stays as it was. Keys can also
+  be built into an image or written to a card on a computer (PR #8, docs/ssh.md).
+- Network (PR #7, opt-in): a LAN-only firewall and source ACL (`net.allow`), the time zone from DHCP option 100, IPv6
+  with stable addresses and the services and mDNS on IPv6.
+- From PR #8: SCPI answers every query (errors instead of silence) and much more of the stock command tree, `*ESR?`,
+  `*OPC?` that waits, `:TFORce`, `:WAVeform:STARt/STOP`, HiSLIP on a computer; references loaded from CSV, OOS BIN and
+  WFM files (Load file), an offline mode that leaves the live screen alone; many new measurements and a measurement
+  catalog in tabs, copy measurements from one source to another, measurements on references; SIM, a serial-record
+  simulator into reference slots; an eye diagram; Measure > Dock; a zoom-area button; Ctrl+wheel zoom; channel
+  deskew; a desktop build for Windows and macOS.
+- Display > Bottom bar: Cards (default) or Compact, PR #8's bar with Menu, Sources, Overlay/Stacked, time and trigger.
+
+Changed:
+
+- Frame 0 of a hardware batch of several frames is left out: the FPGA records it before the arm, sometimes joined
+  with older memory, a stray trace (issue #5). `acq.frame0 = keep` keeps it.
+- With two channels at different V/div the read-path gain and offset follow the stock lane order (PR #7): the DC level
+  was off by about 7 % of the offset.
+- The DHCP script flushes only IPv4 addresses (the IPv6 link-local address stayed gone).
+- DMA reads are at most 4 MiB each; SINGLE arms one frame per batch; STOP disarms (PR #7).
+- `:ACQuire:SRATe?` and `:MDEPth?` answer the hardware's rate and depth, as the top bar shows them.
+- `:ACQuire:AVERages` snaps a count the menu does not offer down to the next one (PR #8).
+
+Fixed:
+
+- Dots mode drew min/max pairs as two dots and lost the edges of a square at slow time bases (PR #7).
+- Minimum persistence flickered with the batch sizes; the picture is graded by the frames it holds (PR #7).
+- Mean-type measurements on min/max pairs are shown as not available instead of wrong (PR #7).
+- The record path no longer takes up to 48 records in a screen, which split a batch over two screens (issue #6).
+- Axis labels: enough decimals for small steps at a large delay.
+
 ## 0.1.12
 
 Install from 0.1.7 or newer as always: the web page, System > Update, or the USB stick; then switch the scope off at
@@ -283,8 +338,6 @@ From 0.1.1 to 0.1.4: install the package through the web page or `oos-update ins
 
 New:
 
-- Measure > Dock places the measurement strip under the plot (the default), on the left, on the right, or above the
-  trace. The choice is kept in the setup file.
 - Waveform windows: Display > Windows splits the plot into two windows side by side, two stacked, or four. Each
   channel and math channel stands in one window (chosen on the same page; a new split spreads the channels that are
   on), all on the same time base. The LA gets a window too: its lanes stand at the bottom of it (all of it when no
@@ -293,8 +346,6 @@ New:
   use one window. A drag in a window moves a channel of that window. Saved in setups.
 - Full screen: the button at the top right of the plot (or Display > Windows > Full screen) gives the plot the whole
   screen without the top bar and the cards; the same button goes back. Not while the touch lock is on.
-- Zoom area: the button under the full-screen button arms one drag. The next drag on the plot draws a box, and the
-  time span of that box is the zoom window. A tap, or a second tap, does not zoom.
 - After an auto set-up a bar at the top of the waveform window, above the signal, offers four views of the trigger
   channel: about three periods, about ten periods, the rising edge, the falling edge (the edge's 10-90 % time across
   about two divisions, slope set to match). Its cross or a tap elsewhere closes it, otherwise it goes after 30 s.
