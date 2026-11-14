@@ -191,19 +191,19 @@ mod tests {
         let mut socket = std::net::TcpStream::connect(("127.0.0.1", scpi.port().unwrap())).unwrap();
         socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         socket.write_all(b":RUN;:TRIG:STAT?;:TIM:SCAL?;:CHAN1:DISP?\n").unwrap();
-        scpi.poll(&mut ui, &Canvas::new(W, H));
+        for _ in 0..20 { scpi.poll(&mut ui, &Canvas::new(W, H)); std::thread::sleep(Duration::from_millis(2)); }
         let mut response = String::new(); std::io::BufReader::new(socket.try_clone().unwrap()).read_line(&mut response).unwrap();
         assert_eq!(response.trim().split(';').count(), 3);
         assert!(ui.bus_candidate_waiting()); assert_eq!(ui.bus_candidate.epoch, epoch);
         assert_eq!(ui.measurement_statistics_snapshot_for_test(), statistics); assert_eq!(ui.records, before);
-        socket.write_all(b":STOP;:TRIG:STAT?\n").unwrap(); scpi.poll(&mut ui, &Canvas::new(W, H));
+        socket.write_all(b":STOP;:TRIG:STAT?\n").unwrap(); for _ in 0..20 { scpi.poll(&mut ui, &Canvas::new(W, H)); std::thread::sleep(Duration::from_millis(2)); }
         response.clear(); std::io::BufReader::new(socket.try_clone().unwrap()).read_line(&mut response).unwrap();
         assert_eq!(ui.m.run, RunState::Stop); assert!(!ui.bus_candidate_waiting());
         ui.m.trig_bus_val = 0x5a;
-        socket.write_all(b":SINGLE;:TRIG:STAT?\n").unwrap(); scpi.poll(&mut ui, &Canvas::new(W, H));
+        socket.write_all(b":SINGLE;:TRIG:STAT?\n").unwrap(); for _ in 0..20 { scpi.poll(&mut ui, &Canvas::new(W, H)); std::thread::sleep(Duration::from_millis(2)); }
         response.clear(); std::io::BufReader::new(socket.try_clone().unwrap()).read_line(&mut response).unwrap(); ui.step(0.001);
         push(&ui, &shared, points, 0xa5, 3);
-        socket.write_all(b":TRIG:FORC;:TRIG:STAT?\n").unwrap(); scpi.poll(&mut ui, &Canvas::new(W, H));
+        socket.write_all(b":TRIG:FORC;:TRIG:STAT?\n").unwrap(); for _ in 0..20 { scpi.poll(&mut ui, &Canvas::new(W, H)); std::thread::sleep(Duration::from_millis(2)); }
         response.clear(); std::io::BufReader::new(socket.try_clone().unwrap()).read_line(&mut response).unwrap(); ui.step(0.001);
         assert_eq!(ui.records, before + 1); assert_eq!(ui.m.run, RunState::Stop); assert_eq!(ui.m.status, TrigStatus::Stop);
         assert!(!ui.last[0].as_ref().unwrap().triggered);

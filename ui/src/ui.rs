@@ -539,6 +539,8 @@ enum Item {
     AcqSeg,
     /// software matching of the ADC cores' offsets (`board::dho::cores`)
     AcqCores,
+    /// Acquire > Draw path: Standard (fast path) or Batch (PR #7, `Model::draw_batch`)
+    AcqDrawPath,
     /// a note while the sample rate is below the ADC's: what lies above half of it folds down, nothing filters it
     AcqAlias,
     /// segments recorded by the FPGA (`Model::seg_hw`)
@@ -2614,6 +2616,8 @@ impl Ui {
     // ------------------------------------------------------------------ acquisition per frame
 
     pub fn step(&mut self, dt_wall: f64) {
+        // Acquire > Draw path: the batch pipeline of PR #7 on the hardware only
+        crate::drawpipe::set_enabled(self.m.draw_batch && self.src.is_hw());
         self.poll_reference_measurements();
         self.poll_catalog_measurements();
         self.sim_poll();
@@ -5735,6 +5739,7 @@ impl Ui {
                     v.extend([Item::AcqSegIvl, Item::AcqSegTable]);
                 }
                 v.push(Item::AcqCores);
+                v.push(Item::AcqDrawPath);
                 if self.alias_above().is_some() {
                     v.push(Item::AcqAlias);
                 }
@@ -6827,6 +6832,7 @@ impl Ui {
             Item::AcqSegTable => "Segment times",
             Item::AcqDepth => "Memory",
             Item::AcqCores => "ADC cores",
+            Item::AcqDrawPath => "Draw path",
             Item::AcqAlias => "Aliasing",
             Item::MeasSrc => "Source A",
             Item::MeasCopyTo => "Copy meas. to",
@@ -7035,6 +7041,7 @@ impl Ui {
             Item::AcqSegIvl => seg_ivl_name(m.seg_ivl),
             Item::AcqDepth => mdepths()[m.mdepth].0.into(),
             Item::AcqCores => if m.cores { "Matched" } else { "Raw" }.into(),
+            Item::AcqDrawPath => if m.draw_batch { "Batch" } else { "Standard" }.into(),
             Item::AcqAlias => self.alias_above().map_or(String::new(), |f| format!("above {}, Peak shows it", si_short(f, "Hz"))),
             Item::MeasSrc => self.wave_name(self.meas_src),
             Item::MeasCopyTo => "Pick".into(),
@@ -7468,6 +7475,10 @@ impl Ui {
                 self.dirty_map = true;
             }
             Item::AcqCores => m.cores = !m.cores,
+            Item::AcqDrawPath => {
+                m.draw_batch = !m.draw_batch;
+                self.dirty_map = true;
+            }
             Item::Hdmi => {
                 let i = HDMI_MODES.iter().position(|&x| x == m.hdmi).unwrap_or(0);
                 m.hdmi = HDMI_MODES[step(i, HDMI_MODES.len(), d)];
@@ -8331,6 +8342,7 @@ impl Ui {
             Item::Dots | Item::ZoneOn => &["Off", "On"],
             Item::BottomBar => &["Cards", "Compact"],
             Item::AcqCores => &["Raw", "Matched"],
+            Item::AcqDrawPath => &["Standard", "Batch"],
             Item::Hdmi => &["Mirror", "Waveform", "Layout"],
             Item::TextSize => return TEXT_SIZES.iter().map(|t| t.name().to_string()).collect(),
             Item::ZoneSel => &["Z1", "Z2"],

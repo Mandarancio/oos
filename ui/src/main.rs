@@ -558,6 +558,10 @@ fn device_main(mut ui: Ui, args: &[String]) {
     }
     // settings of the scope itself: NTP, time zone, Ethernet (/oos/system.conf)
     ui.load_system(sysconf::default_path());
+    // `acq.pipeline = batch` in system.conf: the draw path starts as Batch (Acquire > Draw path)
+    if drawpipe::configured() {
+        ui.m.draw_batch = true;
+    }
     ui.set_ssh_dir(ssh::dir());
     let mut setup_last = store::setup_text(&ui.m);
     let mut setup_t = Instant::now();

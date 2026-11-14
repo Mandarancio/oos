@@ -683,15 +683,34 @@ fn add(dst: &mut Phosphor, src: &Phosphor) {
 /// Workers where the cores are all alike (the host): two.
 const WORKERS: usize = 2;
 
+/// Batch mode switched on (Acquire > Draw path = Batch, `:SYSTem:PIPeline`, or at the start `acq.pipeline = batch`).
+static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The workers, started the first time batch mode is on and kept afterwards.
+static PIPE: OnceLock<Pipe> = OnceLock::new();
+
+/// Whether `acq.pipeline = batch` (or OOS_PIPELINE=batch) asks for batch mode at the start.
+pub fn configured() -> bool {
+    let env = std::env::var("OOS_PIPELINE").ok();
+    mode_from(env.as_deref(), &crate::sysconf::fork_text()) == Mode::Batch
+}
+
+/// Batch mode on or off while the scope runs. Off: the workers stay, idle, and forget their view, so no frame of
+/// the old settings is merged when it comes on again.
+pub fn set_enabled(on: bool) {
+    let was = ENABLED.swap(on, std::sync::atomic::Ordering::Relaxed);
+    if was && !on {
+        if let Some(p) = PIPE.get() {
+            p.set_view(None, 0, 0);
+        }
+    }
+}
+
 /// The pipe in `batch` mode (started on first use), else None.
 pub fn pipe() -> Option<&'static Pipe> {
-    static P: OnceLock<Option<Pipe>> = OnceLock::new();
-    P.get_or_init(|| {
-        let env = std::env::var("OOS_PIPELINE").ok();
-        let conf = crate::sysconf::fork_text();
-        (mode_from(env.as_deref(), &conf) == Mode::Batch).then(|| Pipe::start(crate::placement::little_count().unwrap_or(WORKERS), true, counters()))
-    })
-    .as_ref()
+    if !ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    Some(PIPE.get_or_init(|| Pipe::start(crate::placement::little_count().unwrap_or(WORKERS), true, counters())))
 }
 
 /// The mode in force, for the status line.

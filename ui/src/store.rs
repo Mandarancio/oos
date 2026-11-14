@@ -354,6 +354,7 @@ pub fn setup_text(m: &Model) -> String {
     kv("color_grade", m.color_grade.to_string());
     kv("dots", m.dots.to_string());
     kv("bar", if m.bar_compact { "compact" } else { "cards" }.to_string());
+    kv("draw_path", if m.draw_batch { "batch" } else { "standard" }.to_string());
     kv("hdmi", name(m.hdmi));
     kv("view", name(m.view));
     // Display > Views: the count and the one shown, then what each of the others keeps (ui/views.rs)
@@ -757,6 +758,13 @@ pub fn set(m: &mut Model, k: &str, v: &str) -> Result<(), String> {
         "zdelay" => m.zdelay = p_f32(v)?,
         "color_grade" => m.color_grade = p_bool(v)?,
         "dots" => m.dots = p_bool(v)?,
+        "draw_path" => {
+            m.draw_batch = match v.trim() {
+                "batch" => true,
+                "standard" => false,
+                _ => return Err(format!("{:?}: standard or batch", v)),
+            }
+        }
         "bar" => {
             m.bar_compact = match v.trim() {
                 "compact" => true,

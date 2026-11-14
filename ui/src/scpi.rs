@@ -2070,6 +2070,22 @@ impl Scpi {
             if kw(nodes[1], "STATe") && query {
                 return t(crate::cmd::stat_text(ui).trim());
             }
+            // Acquire > Draw path: FRAMes (the fast path, default) or BATCh (PR #7's pipeline); the `pipe` part of
+            // :SYSTem:STATe? says which runs
+            if kw(nodes[1], "PIPeline") {
+                if query {
+                    return t(if ui.m.draw_batch { "BATC" } else { "FRAM" });
+                }
+                let a = arg.trim().to_ascii_uppercase();
+                if a.starts_with("BATC") {
+                    ui.m.draw_batch = true;
+                } else if a.starts_with("FRAM") || a.starts_with("STAN") {
+                    ui.m.draw_batch = false;
+                } else {
+                    self.push_err(format!("-224,\"Illegal parameter value\" {}", arg));
+                }
+                return None;
+            }
             // System > Graphics: CPU or GPU (whether the GPU really draws: the `gpu` part of :SYSTem:STATe?)
             if kw(nodes[1], "GRAPhics") {
                 if query {
@@ -4673,7 +4689,7 @@ mod tests {
     fn compatibility_disconnected_raw_client_cannot_resume_trailing_writes() {
         let (mut s,mut ui,cv)=reference_session();line(&mut s,&mut ui,&cv,":TRIG:EDGE:LEV 10");
         let mut client=TcpStream::connect(("127.0.0.1",s.port().unwrap())).unwrap();
-        client.write_all(b":SINGLE;*OPC?;:RUN\n").unwrap();s.poll(&mut ui,&cv);assert!(s.clients[0].program.is_some());
+        client.write_all(b":SINGLE;*OPC?;:RUN\n").unwrap();for _ in 0..50 { s.poll(&mut ui,&cv); if !s.clients.is_empty() && s.clients[0].program.is_some() { break; } std::thread::sleep(std::time::Duration::from_millis(2)); }assert!(s.clients[0].program.is_some());
         client.shutdown(std::net::Shutdown::Both).unwrap();drop(client);
         line(&mut s,&mut ui,&cv,":TRIG:EDGE:LEV 0");ui.step(0.2);s.poll(&mut ui,&cv);
         assert!(s.clients.is_empty());assert_eq!(ui.m.run,RunState::Stop);assert_eq!(captures(&ui),1.0);
@@ -5880,5 +5896,33 @@ mod tests {
             b[CURVE + k * 4..CURVE + k * 4 + 4].copy_from_slice(&x.to_le_bytes());
         }
         b
+    }
+}
+
+#[cfg(test)]
+mod draw_path_tests {
+    use super::*;
+
+    // Break it catches: the draw path switch not reaching the model or the setup, or the pipe running where the
+    // switch is off
+    #[test]
+    fn draw_path_over_scpi_in_the_menu_and_the_setup() {
+        let mut ui = Ui::new(crate::wave::Source::Demo { t: 0.0 });
+        let cv = Canvas::new(crate::ui::PANEL_W, crate::ui::PANEL_H);
+        let mut scpi = Scpi::open(0);
+        let mut q = |ui: &mut Ui, c: &str| String::from_utf8(scpi.exec_line(ui, &cv, c)).unwrap();
+        assert_eq!(q(&mut ui, ":SYST:PIP?"), "FRAM");
+        q(&mut ui, ":SYSTem:PIPeline BATCh");
+        assert!(ui.m.draw_batch);
+        assert!(crate::store::setup_text(&ui.m).contains("draw_path = batch\n"));
+        let back = crate::store::parse_setup(&crate::store::setup_text(&ui.m)).unwrap();
+        assert!(back.draw_batch);
+        // the demo source is not the hardware: no workers
+        ui.step(0.02);
+        assert!(crate::drawpipe::pipe().is_none());
+        q(&mut ui, ":SYST:PIP FRAM");
+        assert!(!ui.m.draw_batch);
+        q(&mut ui, ":SYST:PIP BOGUS");
+        assert!(q(&mut ui, ":SYST:ERR?").starts_with("-224"));
     }
 }
