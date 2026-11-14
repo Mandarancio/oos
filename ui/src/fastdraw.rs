@@ -290,25 +290,26 @@ pub fn add_spans(band: &mut [u16], w: usize, r_lo: usize, s: &Spans, wgt: u16) {
     }
 }
 
-/// The fast path collects a screen's frames as differences, column by column: a span of rows r0..=r1 with weight w
-/// is +w at r0 and -w at r1 + 1 of its column (`h + 1` entries a column, wrapping u16), whatever its height; `fold_t`
-/// sums them up once a screen into the row-major map. Written into the map directly, every pixel of a tall span was
-/// another cache line (10 us/div, 4 channels, a 1 MHz sine: about 2 ms a frame on the scope).
+/// The fast path collects a screen's frames as differences: a span of rows r0..=r1 with weight w is +w at r0 and -w
+/// at r1 + 1 of its column (wrapping u16), whatever its height; `fold_t` sums them up once a screen into the map.
+/// Written into the map directly, every pixel of a tall span was another cache line (10 us/div, 4 channels, a 1 MHz
+/// sine: about 2 ms a frame on the scope). A band of `bw` columns holds `h + 1` rows of them, row by row, so the sums
+/// go down a row at a time over all its columns.
 #[inline(always)]
-pub fn diff_span(band: &mut [u16], base: usize, r0: usize, r1: usize, wgt: u16) {
-    band[base + r0] = band[base + r0].wrapping_add(wgt);
-    band[base + r1 + 1] = band[base + r1 + 1].wrapping_sub(wgt);
+pub fn diff_span(band: &mut [u16], bw: usize, x: usize, r0: usize, r1: usize, wgt: u16) {
+    band[r0 * bw + x] = band[r0 * bw + x].wrapping_add(wgt);
+    band[(r1 + 1) * bw + x] = band[(r1 + 1) * bw + x].wrapping_sub(wgt);
 }
 
 /// `add_spans` into a band of the collecting differences (`diff_span`): `band` holds the columns `c_lo ..`, `h + 1`
-/// entries each.
+/// rows of them.
 pub fn add_spans_t(band: &mut [u16], h: usize, c_lo: usize, s: &Spans, wgt: u16) {
-    let hp = h + 1;
-    let c_hi = c_lo + band.len() / hp;
+    let bw = band.len() / (h + 1);
+    let c_hi = c_lo + bw;
     for c in s.c0.max(c_lo)..(s.c0 + s.rows.len()).min(c_hi) {
         let (r0, r1) = s.rows[c - s.c0];
         if r0 <= r1 {
-            diff_span(band, (c - c_lo) * hp, r0 as usize, r1 as usize, wgt);
+            diff_span(band, bw, c - c_lo, r0 as usize, r1 as usize, wgt);
         }
     }
 }
@@ -318,8 +319,8 @@ pub fn deposit_dots_t(band: &mut [u16], h: usize, c_lo: usize, v: &[f32], m: &Ma
     if v.is_empty() || m.x_per_sample <= 0.0 {
         return;
     }
-    let hp = h + 1;
-    let c_hi = (c_lo + band.len() / hp) as i64;
+    let bw = band.len() / (h + 1);
+    let c_hi = (c_lo + bw) as i64;
     let k_of = |x: f64| m.ti + (x - m.x0) / m.x_per_sample;
     let first = |c: i64| (k_of(c as f64).ceil().max(0.0) as usize).min(v.len());
     let c0 = (((-m.ti) * m.x_per_sample + m.x0).floor() as i64).max(c_lo as i64);
@@ -330,25 +331,55 @@ pub fn deposit_dots_t(band: &mut [u16], h: usize, c_lo: usize, v: &[f32], m: &Ma
     let mut ka = first(c0);
     for c in c0..c1 {
         let kb = first(c + 1);
-        let base = (c as usize - c_lo) * hp;
+        let xc = c as usize - c_lo;
         for &x in &v[ka..kb.max(ka)] {
             let r = (x * m.y_per_volt + m.y0).round();
             // NaN fails both comparisons
             if r >= 0.0 && r < h as f32 {
-                diff_span(band, base, r as usize, r as usize, wgt);
+                diff_span(band, bw, xc, r as usize, r as usize, wgt);
             }
         }
         ka = kb.max(ka);
     }
 }
 
-/// Sums the collected differences `acc` (`diff_span`, `h + 1` a column) of the rows `rows` up into the row-major
-/// `map` (`w` x `h`) and clears them: in tiles, so map and differences stay in the cache; columns with nothing in a
-/// tile are passed over.
-pub fn fold_t(map: &mut [u16], acc: &mut [u16], w: usize, h: usize, rows: std::ops::Range<usize>) {
-    const T: usize = 32;
+/// Sums the collected differences `acc` (`diff_span`, bands of `band_cols` columns) of the rows `rows` up into the
+/// row-major `map` (`w` x `h`) and clears them: down each band a row at a time, its columns side by side (vector
+/// instructions), rows with nothing running pass the map by.
+pub fn fold_t(map: &mut [u16], acc: &mut [u16], w: usize, h: usize, band_cols: usize, rows: std::ops::Range<usize>) {
     let hp = h + 1;
     // the entry below the last row touched holds its -w
+    let (r_lo, r_end) = (rows.start.min(h), (rows.end.min(h) + 1).min(hp));
+    if r_lo >= r_end || band_cols == 0 {
+        return;
+    }
+    let mut run = vec![0u16; band_cols.min(w)];
+    for (b, band) in acc.chunks_mut(band_cols * hp).enumerate() {
+        let (c_lo, bw) = (b * band_cols, band.len() / hp);
+        let run = &mut run[..bw];
+        run.fill(0);
+        for r in r_lo..r_end {
+            let mut o = 0u16;
+            for (v, x) in run.iter_mut().zip(band[r * bw..][..bw].iter_mut()) {
+                *v = v.wrapping_add(*x);
+                *x = 0;
+                o |= *v;
+            }
+            if o != 0 && r < h {
+                for (x, &v) in map[r * w + c_lo..][..bw].iter_mut().zip(run.iter()) {
+                    *x = x.saturating_add(v);
+                }
+            }
+        }
+    }
+}
+
+/// The first fold: differences column by column (`h + 1` a column), summed down the columns in tiles (the reference
+/// of the test, and the bench's baseline).
+#[cfg(test)]
+fn fold_t_cols(map: &mut [u16], acc: &mut [u16], w: usize, h: usize, rows: std::ops::Range<usize>) {
+    const T: usize = 32;
+    let hp = h + 1;
     let (r_lo, r_end) = (rows.start.min(h), (rows.end.min(h) + 1).min(hp));
     if r_lo >= r_end {
         return;
@@ -477,6 +508,78 @@ impl Fold {
 
 #[cfg(test)]
 mod tests {
+    /// Spans of random heights in random columns (some saturating), folded by rows in bands: the same map as the
+    /// first fold column by column, for several row ranges, band widths and widths that are no multiple of them.
+    #[test]
+    fn fold_by_rows_equals_fold_by_columns() {
+        let mut seed = 12345u64;
+        let mut rnd = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n
+        };
+        for &(w, h, lo, hi, bc) in &[(1000usize, 480usize, 0usize, 480usize, 512usize), (1000, 480, 0, 480, 1000), (77, 50, 3, 41, 20), (64, 64, 0, 64, 1), (33, 31, 30, 31, 32)] {
+            let hp = h + 1;
+            let (mut acc, mut cols) = (vec![0u16; w * hp], vec![0u16; w * hp]);
+            for _ in 0..w * 3 {
+                let c = rnd(w);
+                let r0 = lo + rnd(hi - lo);
+                let r1 = r0 + rnd(hi - r0);
+                let wgt = if rnd(10) == 0 { 40000 } else { 1 + rnd(300) as u16 };
+                let (b, x) = (c / bc, c % bc);
+                let bw = bc.min(w - b * bc);
+                diff_span(&mut acc[b * bc * hp..][..bw * hp], bw, x, r0, r1, wgt);
+                diff_span(&mut cols[c * hp..][..hp], 1, 0, r0, r1, wgt);
+            }
+            let mut base = vec![0u16; w * h];
+            for x in base.iter_mut() {
+                *x = rnd(3000) as u16;
+            }
+            let (mut m1, mut m2) = (base.clone(), base);
+            fold_t(&mut m1, &mut acc, w, h, bc, lo..hi);
+            fold_t_cols(&mut m2, &mut cols, w, h, lo..hi);
+            assert!(m1 == m2, "{w}x{h} rows {lo}..{hi} bands of {bc}");
+            assert!(acc.iter().all(|&x| x == 0) && cols.iter().all(|&x| x == 0));
+        }
+    }
+
+    /// Time of a fold of a full map of tall spans (cargo test --release fold_speed -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn fold_speed() {
+        let (w, h, bc) = (1024usize, 456usize, 512usize);
+        let hp = h + 1;
+        let span = |c: usize, k: usize| ((k * 7 + c) % 200, 250 + (k * 11 + c) % 200);
+        let time = |f: &mut dyn FnMut(&mut [u16], &mut [u16]), fill: &dyn Fn(&mut [u16])| {
+            let (mut map, mut acc, mut best) = (vec![0u16; w * h], vec![0u16; w * hp], f64::MAX);
+            for _ in 0..30 {
+                fill(&mut acc);
+                let t = std::time::Instant::now();
+                f(&mut map, &mut acc);
+                best = best.min(t.elapsed().as_secs_f64());
+            }
+            best * 1e3
+        };
+        let rows = time(&mut |m, a| fold_t(m, a, w, h, bc, 0..h), &|acc| {
+            for c in 0..w {
+                let (b, x) = (c / bc, c % bc);
+                for k in 0..20 {
+                    let (r0, r1) = span(c, k);
+                    diff_span(&mut acc[b * bc * hp..][..bc * hp], bc, x, r0, r1, 3);
+                }
+            }
+        });
+        let cols = time(&mut |m, a| fold_t_cols(m, a, w, h, 0..h), &|acc| {
+            for c in 0..w {
+                for k in 0..20 {
+                    let (r0, r1) = span(c, k);
+                    diff_span(&mut acc[c * hp..][..hp], 1, 0, r0, r1, 3);
+                }
+            }
+        });
+        println!("fold rows {rows:.3} ms, columns {cols:.3} ms");
+    }
+
+
     use super::*;
 
     /// The poller's CPU from `/proc`: the busiest `cmpl_status_th*` thread, the others and other names left out.

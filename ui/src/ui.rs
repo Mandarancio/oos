@@ -2026,8 +2026,8 @@ impl Ui {
                 }
             }
         }
-        // the maps: each channel's frames collected as differences column by column (`fastdraw::diff_span`), in bands
-        // of columns so one channel alone also spreads over the cores, then summed into the map once
+        // the maps: each channel's frames collected as differences (`fastdraw::diff_span`), in bands of columns so one
+        // channel alone also spreads over the cores, then summed into the map once
         let m = &self.m;
         let on: Vec<usize> = (0..NCH).filter(|&c| m.ch[c].on).collect();
         for &c in &on {
@@ -2061,7 +2061,7 @@ impl Ui {
         });
         let t2 = std::time::Instant::now();
         let pairs: Vec<(usize, &mut Vec<u16>, &mut Vec<u16>)> = self.ph.map.iter_mut().zip(self.acc_t.iter_mut()).enumerate().filter(|(c, _)| on.contains(c)).map(|(c, (a, b))| (c, a, b)).collect();
-        crate::fastdraw::par_each(pairs, |(c, map, acc)| crate::fastdraw::fold_t(map, acc, w, h, rows[c].0..rows[c].1));
+        crate::fastdraw::par_each(pairs, |(c, map, acc)| crate::fastdraw::fold_t(map, acc, w, h, band_cols, rows[c].0..rows[c].1));
         let (a, b) = ((t1 - t0).as_secs_f32() * 1e3, t1.elapsed().as_secs_f32() * 1e3);
         self.t_fast_ab.0 += 0.05 * (a - self.t_fast_ab.0);
         self.t_fast_ab.1 += 0.05 * (b - self.t_fast_ab.1);
@@ -7587,7 +7587,7 @@ fn rec_rows(m: &Model, h: usize, c: usize, v: &[f32]) -> (usize, usize) {
 }
 
 /// Channel `c` of a placed frame into a band of its collected differences (`fastdraw::diff_span`): the columns
-/// `c_lo ..` of a map `w` x `h`, `h + 1` entries each.
+/// `c_lo ..` of a map `w` x `h`, `h + 1` rows of them.
 #[allow(clippy::too_many_arguments)]
 pub fn fast_deposit_t(m: &Model, w: usize, h: usize, c: usize, band: &mut [u16], c_lo: usize, f: &crate::board::Frame, p: &FastPlan) {
     if !m.ch[c].on {
@@ -7596,9 +7596,10 @@ pub fn fast_deposit_t(m: &Model, w: usize, h: usize, c: usize, band: &mut [u16],
     match p {
         FastPlan::Rec(rec) => {
             if !rec.ch[c].is_empty() {
-                let c_hi = (c_lo + band.len() / (h + 1)) as i32;
+                let bw = band.len() / (h + 1);
+                let c_hi = (c_lo + bw) as i32;
                 crate::wave::trace_columns(w, h, c, m, (m.time_per_div(), m.delay), rec.t0, rec.dt, &rec.ch[c], 24, None, (c_lo as i32, c_hi), |cx, r0, r1, wt| {
-                    crate::fastdraw::diff_span(band, (cx as usize - c_lo) * (h + 1), r0 as usize, r1 as usize, wt);
+                    crate::fastdraw::diff_span(band, bw, cx as usize - c_lo, r0 as usize, r1 as usize, wt);
                 });
             }
         }
