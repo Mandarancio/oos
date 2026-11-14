@@ -19,6 +19,7 @@ pub mod clock;
 pub mod counter;
 pub mod coretrim;
 pub mod dvm;
+#[cfg_attr(not(unix), path = "gpio_none.rs")]
 pub mod gpio;
 pub mod hz;
 pub mod la;

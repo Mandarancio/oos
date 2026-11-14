@@ -111,7 +111,6 @@ pub fn trigger_point(f: &Frame, m: &Model, n: usize, window: f64, t_first: f64) 
 /// Turns the latest frame into a screen record: software trigger (oos-dsp) closest to the hardware trigger point,
 /// then the screen window (`n` points over `window` s from `t_first` relative to the trigger) by linear interpolation.
 pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64) -> crate::wave::Record {
-    let len = f.ch.iter().map(|v| v.len()).max().unwrap_or(0);
     let found = trigger_point(f, m, n, window, t_first);
     // roll: right-aligned like a chart recorder, the start of the stream may be left of the buffer (blank)
     let ti = if f.roll {
@@ -123,7 +122,14 @@ pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64)
     } else {
         found.unwrap_or(f.pre as f64)
     };
-    let dt = window / n as f64;
+    resample(f, m, n, window, t_first, ti, found.is_some())
+}
+
+/// Rebuild a display window from the retained acquisition without retriggering.
+/// `ti` is the original accepted trigger's fractional sample index.
+pub fn resample(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64, ti: f64, triggered: bool) -> crate::wave::Record {
+    let len = f.ch.iter().map(|v| v.len()).max().unwrap_or(0);
+    let dt = window / n.max(1) as f64;
     // several samples per point and no averaging: the points become min/max pairs (the peak-detect branch below)
     let pairs = dt / f.dt >= 2.0 && m.acq != AcqMode::HiRes;
     let mut ch: [Vec<f32>; NCH] = Default::default();
@@ -193,12 +199,13 @@ pub fn to_record(f: &Arc<Frame>, m: &Model, n: usize, window: f64, t_first: f64)
             .collect();
     }
     // the frame's samples inside the screen window
-    let i0 = (ti + t_first / f.dt).floor().max(0.0) as usize;
+    let i0 = ((ti + t_first / f.dt).floor().max(0.0) as usize).min(len);
     let i1 = ((ti + (t_first + window) / f.dt).ceil().max(0.0) as usize).min(len);
-    let raw = (i1 > i0 + 1).then(|| crate::wave::Raw { frame: f.clone(), i0, i1, t0: (i0 as f64 - ti) * f.dt });
+    // Keep the acquisition even for a window outside it: navigation can return.
+    let raw = (len > 1).then(|| crate::wave::Raw { frame: f.clone(), i0, i1: i1.max(i0), t0: (i0 as f64 - ti) * f.dt, conditioned: true });
     // LA: the same shift as the analog record (software trigger at `ti` instead of the hardware point `pre`)
     let la = f.la.as_ref().map(|l| crate::ui::la::LaRec { t0: l.t0 - (ti - f.pre as f64) * f.dt, ..l.clone() });
-    crate::wave::Record { t0: t_first, dt, ch, triggered: found.is_some(), partial: f.partial, raw, la, pairs }
+    crate::wave::Record { t0: t_first, dt, ch, triggered, partial: f.partial, raw, la, pairs }
 }
 
 #[cfg(test)]
@@ -216,7 +223,7 @@ mod tests {
             })
             .collect();
         let window = 100_000e-9;
-        let frame = Arc::new(Frame { seq: 1, dt: 1e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false });
+        let frame = Arc::new(Frame { seq: 1, dt: 1e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false, basic: Default::default() });
         let rms = |v: &[f32]| (v.iter().map(|y| (y - 1.0) * (y - 1.0)).sum::<f32>() / v.len() as f32).sqrt();
         let mut m = Model::default();
         m.trig_level = 5.0; // nothing to trigger on: the window stays at the hardware point
@@ -237,7 +244,7 @@ mod tests {
         let mut m = Model::default();
         m.trig_level = 0.0;
         let window = 9000e-9;
-        let f = Frame { seq: 1, dt: 1e-9, pre: 5400, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false };
+        let f = Frame { seq: 1, dt: 1e-9, pre: 5400, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false, basic: Default::default() };
         let r = to_record(&Arc::new(f), &m, 3600, window, -window / 2.0);
         assert!(r.triggered);
         assert!(r.ch[0].iter().all(|y| y.is_finite()), "{} gaps", r.ch[0].iter().filter(|y| !y.is_finite()).count());
@@ -253,7 +260,7 @@ mod peak_detect {
         let m = Model { slope: Slope::Fall, ..Model::default() };
         let mut v: Vec<f32> = (0..100_000).map(|k| if (k / 25_000) % 2 == 0 { 0.0 } else { 3.0 }).collect();
         v[12_345] = 2.0; // one-sample glitch on the low level
-        let f = Arc::new(Frame { seq: 1, dt: 20e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false });
+        let f = Arc::new(Frame { seq: 1, dt: 20e-9, pre: 50_000, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false, basic: Default::default() });
         let window = m.time_per_div() as f64 * 10.0; // 2 ms > record: whole record on screen
         let t = std::time::Instant::now();
         let mut r = to_record(&f, &m, 3600, window, -window / 2.0);
@@ -352,7 +359,7 @@ mod bench {
             let dt = 0.8e-9 * (tdiv / 1e-7).max(1.0) * 1408.0 / pts as f64 * if pts == 1408 { 1.0 } else { 1.0 };
             let f = 3.0 / (tdiv * 10.0);
             let v: Vec<f32> = (0..pts).map(|k| (2.0 * std::f64::consts::PI * f * k as f64 * dt).sin() as f32).collect();
-            let fr = Arc::new(Frame { seq: 1, dt, pre: pts / 2, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, pts), stamp: 0, la: None, fixed_ti: None, hw_avg: false });
+            let fr = Arc::new(Frame { seq: 1, dt, pre: pts / 2, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: false, scan: false, partial: false, acq: (1.0 / dt, pts), stamp: 0, la: None, fixed_ti: None, hw_avg: false, basic: Default::default() });
             let window = tdiv * 10.0;
             let mut ph = crate::wave::Phosphor::new(970, 448);
             let n = 400;

@@ -59,7 +59,7 @@ pub fn enabled_from(env: Option<&str>, conf: &str) -> bool {
 /// The request for the model: on, and a shown measurement (or the software DVM) needs samples. Normal acquisition
 /// only: in Peak the memory holds peak pairs, not samples; Average and High res have their own records.
 pub fn want(m: &Model) -> Option<Want> {
-    let needs = m.meas.iter().any(|&(k, c)| m.ch[c].on && crate::framestats::needs_samples(k)) || (m.dvm_on && m.ch[m.dvm_src].on);
+    let needs = m.meas.iter().any(|&(k, s)| s.ch().is_some_and(|c| m.ch[c].on) && crate::framestats::needs_samples(k)) || (m.dvm_on && m.ch[m.dvm_src].on);
     (enabled() && needs && m.acq == AcqMode::Normal).then_some(Want { every: m.trig_mode == TrigMode::Single })
 }
 
@@ -112,9 +112,9 @@ mod tests {
         force(Some(true));
         let mut m = Model::default();
         m.ch[0].on = true;
-        m.meas = vec![(Meas::Vmax, 0)];
+        m.meas = vec![(Meas::Vmax, crate::model::WaveId::Ch(0))];
         assert_eq!(want(&m), None, "max needs no samples");
-        m.meas.push((Meas::Vavg, 0));
+        m.meas.push((Meas::Vavg, crate::model::WaveId::Ch(0)));
         assert_eq!(want(&m), Some(Want { every: false }));
         m.trig_mode = TrigMode::Single;
         assert_eq!(want(&m), Some(Want { every: true }));
@@ -135,7 +135,7 @@ mod tests {
         force(Some(true));
         let mut m = Model::default();
         m.ch[0].on = true;
-        m.meas = vec![(Meas::Vrms, 0)];
+        m.meas = vec![(Meas::Vrms, crate::model::WaveId::Ch(0))];
         m.tscale = tscales().iter().position(|&t| (t as f64 - 1e-3).abs() < 1e-9).unwrap();
         // 10 M at 1 ms/div: the 10 M record is the window, 20 MB
         assert!(hold(&m, Some(&deep(true))));

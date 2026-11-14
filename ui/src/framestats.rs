@@ -73,7 +73,7 @@ pub type Folds = Vec<((Meas, usize), Fold)>;
 
 /// Empty statistics for the measurements of `m` made per frame.
 pub fn folds_for(m: &Model) -> Folds {
-    m.meas.iter().filter(|(k, c)| CHEAP.contains(k) && m.ch[*c].on).map(|&e| (e, Fold::default())).collect()
+    m.meas.iter().filter_map(|&(k, s)| s.ch().filter(|&c| CHEAP.contains(&k) && m.ch[c].on).map(|c| ((k, c), Fold::default()))).collect()
 }
 
 /// Adds `b` to `a` (the same measurements: merged by key).
@@ -204,7 +204,7 @@ pub fn fold_frame(f: &Frame, m: &Model, folds: &mut Folds) -> bool {
         if v.len() < 2 || i1 > v.len() {
             continue;
         }
-        let std = m.meas.iter().any(|(x, y)| y == c && matches!(x, Meas::StdDev | Meas::VrmsAc));
+        let std = m.meas.iter().any(|(x, y)| *y == crate::model::WaveId::Ch(*c) && matches!(x, Meas::StdDev | Meas::VrmsAc));
         let vals = cache[*c].get_or_insert_with(|| Values::of(&v[i0..i1], std));
         if let Some(x) = vals.as_ref().map(|s| s.get(*k)).filter(|x| x.is_finite()) {
             fold.push(x);
@@ -340,7 +340,7 @@ mod tests {
             for c in 0..NCH {
                 (m.ch[c].on, m.ch[c].offset) = (c == 0 || c == 1 && two, 0.0);
             }
-            m.meas = CHEAP.iter().flat_map(|&k| [(k, 0), (k, 1)]).collect();
+            m.meas = CHEAP.iter().flat_map(|&k| [(k, crate::model::WaveId::Ch(0)), (k, crate::model::WaveId::Ch(1))]).collect();
             let r = if two { 2.0 } else { 1.0 };
             let dt = r / 1.25e9;
             let (mut got, mut want) = (folds_for(&m), folds_for(&m));
@@ -380,7 +380,7 @@ mod tests {
         for c in 0..NCH {
             m.ch[c].on = c == 0;
         }
-        m.meas = CHEAP.iter().map(|&k| (k, 0)).collect();
+        m.meas = CHEAP.iter().map(|&k| (k, crate::model::WaveId::Ch(0))).collect();
         // min/max pairs of a -1/+1 square with 20 % duty: every pair holds both levels around the edges, only one
         // level elsewhere
         let len = 12_512usize;

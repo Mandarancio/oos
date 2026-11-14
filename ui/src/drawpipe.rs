@@ -943,7 +943,7 @@ mod tests {
         let (w, h) = (970, 448);
         for (tdiv, memsel, two, dots, workers, helper) in [(1e-6, 12_512u32, false, false, 2, false), (1e-6, 12_512, true, true, 4, true), (1e-7, 1408, false, false, 1, true), (2e-8, 400, true, false, 1, true)] {
             let mut m = model(tdiv, two, dots);
-            m.meas = vec![(Meas::Vpp, 0), (Meas::Vavg, 0), (Meas::Vrms, 1)];
+            m.meas = vec![(Meas::Vpp, crate::model::WaveId::Ch(0)), (Meas::Vavg, crate::model::WaveId::Ch(0)), (Meas::Vrms, crate::model::WaveId::Ch(1))];
             let (bytes, fb, s, p) = batch(41, memsel, two);
             let c = fresh();
             let pipe = Pipe::start(workers, false, c);
@@ -994,7 +994,7 @@ mod tests {
         let (w, h) = (970, 448);
         for (tdiv, memsel) in [(1e-6, 12_512u32), (1e-7, 1408)] {
             let mut m = model(tdiv, false, false);
-            m.meas = vec![(Meas::Vpp, 0)];
+            m.meas = vec![(Meas::Vpp, crate::model::WaveId::Ch(0))];
             let (bytes, fb, s, p) = batch(20, memsel, false);
             let pipe = Pipe::start(0, false, fresh());
             pipe.set_view(Some(&m), w, h);
@@ -1084,7 +1084,7 @@ mod tests {
         for (tdiv, memsel, meas) in [(1e-7, 1408u32, false), (1e-6, 12_512, false), (1e-6, 12_512, true), (1e-5, 125_000, false), (1e-5, 125_000, true)] {
             let mut m = model(tdiv, false, false);
             // the measurements made on every frame cost on top (reported, not guarded): the worst case, all of them on
-            m.meas = if meas { crate::framestats::CHEAP.iter().map(|&k| (k, 0)).collect() } else { Vec::new() };
+            m.meas = if meas { crate::framestats::CHEAP.iter().map(|&k| (k, crate::model::WaveId::Ch(0))).collect() } else { Vec::new() };
             let frames = (2_000_000 / (memsel as usize * 2)).clamp(8, 500);
             let (bytes, fb, s, p) = batch(frames, memsel, false);
             // the frames mode: decode + fast_draw on one thread (its measurements: a few records a second), against

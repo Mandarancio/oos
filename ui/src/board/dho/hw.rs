@@ -1034,7 +1034,7 @@ fn set_meta(s: &Settings, p: &hz::Params, seq: u64, f: &mut Frame) {
     let (_, start) = oos_hal::dho::seq::window(s, p);
     let pre = p.pre.saturating_sub(start) as usize / k;
     let ch = std::mem::take(&mut f.ch);
-    *f = Frame { seq, dt: k as f64 / p.rate as f64, pre, ch, roll: false, envelope: k > 1, scan: false, partial: false, acq: (p.rate as f64, p.memsel as usize), stamp: 0, la: None, hw_avg: false, fixed_ti: None };
+    *f = Frame { seq, dt: k as f64 / p.rate as f64, pre, ch, roll: false, envelope: k > 1, scan: false, partial: false, acq: (p.rate as f64, p.memsel as usize), stamp: 0, la: None, hw_avg: false, fixed_ti: None, basic: Default::default() };
 }
 
 /// `decode_into` without the decode (drawpipe::draw_frame_codes): the frame's fields as the decode sets them, the
@@ -1634,6 +1634,12 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                 out.lock().unwrap().slots = Some((id, r.map(|r| r.map(|x| [x.min as f32, x.max as f32, x.mean as f32]))));
                 slots_done = Some(id);
             }
+            // :TFORce (from PR #8): a pulse of the force bit on the shadows now in force, then back. Not part of the
+            // set-up, so it does not reconfigure. Pulsed between batches: a batch already waiting for its trigger
+            // takes it at its next arm
+            if std::mem::take(&mut out.lock().unwrap().force) {
+                bar.apply(&oos_hal::dho::tpu::force(&state.ts));
+            }
             if mode != Slow::Off {
                 disarm(&mut armed, &mut state, &mut bar, &mut c2h);
                 // roll and scan (roll-mode.md): stream chunks; roll keeps 10 divisions and puts the newest point at the
@@ -1780,7 +1786,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                         }
                         // word 0 at the left edge like analog point 0; only what the sweeps have written so far
                         let la = la_t.map(|_| crate::ui::la::LaRec { words: Arc::new(sweep_la.iter().take_while(|x| !x.is_nan()).map(|&x| x as u16).collect()), t0: 0.0, dt: la_dt });
-                        Frame { seq: n, dt, pre: 0, ch, roll: false, envelope: true, scan: true, partial: !done, acq: (0.0, 0), stamp, la, fixed_ti: None, hw_avg: false }
+                        Frame { seq: n, dt, pre: 0, ch, roll: false, envelope: true, scan: true, partial: !done, acq: (0.0, 0), stamp, la, fixed_ti: None, hw_avg: false, basic: Default::default() }
                     } else {
                         let len = ring.iter().map(|r| r.len()).max().unwrap_or(0);
                         // the newest point at the right edge: index len - 1 sits half a screen right of `pre`
@@ -1791,7 +1797,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                             words: Arc::new(ring_la.iter().copied().collect()),
                             dt: la_dt,
                         });
-                        Frame { seq: n, dt, pre, ch: ring.clone().map(|r| r.into_iter().collect()), roll: true, envelope: true, scan: false, partial: len < keep, acq: (0.0, 0), stamp, la, fixed_ti: None, hw_avg: false }
+                        Frame { seq: n, dt, pre, ch: ring.clone().map(|r| r.into_iter().collect()), roll: true, envelope: true, scan: false, partial: len < keep, acq: (0.0, 0), stamp, la, fixed_ti: None, hw_avg: false, basic: Default::default() }
                     };
                     let mut g = out.lock().unwrap();
                     // a complete sweep must not be dropped by the next partial picture
@@ -2090,6 +2096,11 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                     }
                     if let (Some(w), Some(f)) = (la_words, frames.last_mut()) {
                         f.la = Some(la_record(w, &b, &p));
+                    }
+                    // the newest frame becomes the record: its six full-frame readings (PR #8, `BasicStats`) here, off
+                    // the frame loop; the fast path folds the other frames itself
+                    if let Some(f) = frames.last_mut() {
+                        f.basic = std::array::from_fn(|c| crate::board::BasicStats::of(&f.ch[c]));
                     }
                     if count > 0 {
                         last_batch = Some((b.clone(), p, count - 1));
@@ -2846,7 +2857,7 @@ mod tests {
         // a scan frame of 1000 points spans the screen: point 0 left, point 999 right
         let m = Model::default();
         let v: Vec<f32> = (0..1000).map(|i| i as f32).collect();
-        let f = Frame { seq: 1, dt: 1e-3, pre: 0, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: true, scan: true, partial: true, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false };
+        let f = Frame { seq: 1, dt: 1e-3, pre: 0, ch: [v, Vec::new(), Vec::new(), Vec::new()], roll: false, envelope: true, scan: true, partial: true, acq: (0.0, 0), stamp: 0, la: None, fixed_ti: None, hw_avg: false, basic: Default::default() };
         let r = to_record(&Arc::new(f), &m, 100, 1.0, -0.5);
         assert!(r.partial && !r.triggered);
         assert!(r.ch[0][0] < 10.0 && r.ch[0][99] > 980.0, "{} {}", r.ch[0][0], r.ch[0][99]);
@@ -2873,8 +2884,8 @@ mod tests {
         // the smallest records get at least 64 more points
         assert_eq!(screen_margin(62), 128);
         // 1 ns/div: 12 points per screen, read 80 at the full rate (more than stock's smallest record, 62 at 5 ns)
-        m.tscale = 0;
-        assert_eq!(tscales()[0], 1e-9);
+        m.tscale = tscales().iter().position(|&t| (t - 1e-9).abs() < 1e-12).unwrap();
+        assert!((tscales()[m.tscale] - 1e-9).abs() < 1e-12);
         let s = settings(&m, false);
         let p = hz::prep(s.mask, oos_hal::dho::seq::tdiv_fs(1e-9), s.depth, 0);
         assert_eq!((p.rate, p.memsel, p.pre), (1_250_000_000, 80, 40), "depth {}", s.depth);

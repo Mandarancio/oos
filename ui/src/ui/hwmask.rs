@@ -49,7 +49,7 @@ impl Ui {
 
     /// (passed, failed) of the mask statistics: the hardware counters while the hardware tests, else the software
     /// test's.
-    pub(super) fn mask_counts(&self) -> (u64, u64) {
+    pub(crate) fn mask_counts(&self) -> (u64, u64) {
         match self.mask_hw.filter(|r| r.ch == self.m.mask_src && self.mask_hw_active()) {
             Some(r) => (r.frames.saturating_sub(r.fails), r.fails),
             None => (self.mask_pass, self.mask_fail),
@@ -57,7 +57,7 @@ impl Ui {
     }
 
     /// Clears the mask statistics, the hardware counters with them.
-    pub(super) fn mask_counts_reset(&mut self) {
+    pub(crate) fn mask_counts_reset(&mut self) {
         self.mask_pass = 0;
         self.mask_fail = 0;
         self.mask_hw_clear += 1;
