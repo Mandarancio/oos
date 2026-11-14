@@ -8163,9 +8163,13 @@ impl Ui {
     /// Loads setup<slot>.txt of the storage directory; the acquisition state (run / stop) stays as it is.
     fn recall_setup(&mut self) {
         let p = self.setup_path();
-        let parsed = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|t| crate::store::parse_setup(&t));
+        // what this build cannot take (a decoder it does not have, a key of a newer build) is left out and named
+        let parsed = std::fs::read_to_string(&p).map_err(|e| e.to_string()).map(|t| crate::store::parse_setup_lenient(&t));
         match parsed {
-            Ok(mut m) => {
+            Ok((mut m, bad)) => {
+                for e in &bad {
+                    eprintln!("oos-ui: recall {}: left out: {}", p.display(), e);
+                }
                 (m.run, m.status) = (self.m.run, self.m.status);
                 // the text size is a preference of this screen, not part of a set-up
                 m.text_size = self.m.text_size;
@@ -8184,7 +8188,10 @@ impl Ui {
                 self.relayout();
                 self.dirty_map = true;
                 self.clear_measurement_statistics();
-                self.toast(&format!("Recalled {}", crate::store::file_name(&p)));
+                match bad.first() {
+                    None => self.toast(&format!("Recalled {}", crate::store::file_name(&p))),
+                    Some(e) => self.toast(&format!("Recalled {}, {} line{} left out ({})", crate::store::file_name(&p), bad.len(), if bad.len() == 1 { "" } else { "s" }, e)),
+                }
             }
             Err(e) => self.toast(&format!("Recall failed: {}", e)),
         }

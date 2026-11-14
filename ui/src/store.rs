@@ -1060,15 +1060,42 @@ pub fn set(m: &mut Model, k: &str, v: &str) -> Result<(), String> {
 /// Parses a setup file on top of the default set-up (keys missing in the file keep their defaults). Errors name the
 /// line and the key; unknown keys are ignored.
 pub fn parse_setup(text: &str) -> Result<Model, String> {
+    let (m, bad) = parse_setup_lenient(text);
+    match bad.into_iter().next() {
+        Some(e) => Err(e),
+        None => Ok(m),
+    }
+}
+
+/// `parse_setup` that loads what it can: a line it cannot take (a key of a newer or another build, a protocol not in
+/// this one, a value out of range) is left out and named in the list, the rest of the setup stands. A decoder whose
+/// protocol is not in this build is switched off, its other settings kept. For recalling a setup and the restart.
+pub fn parse_setup_lenient(text: &str) -> (Model, Vec<String>) {
+    let mut bad = Vec::new();
+    let m = parse_lines(text, &mut bad);
+    (m, bad)
+}
+
+fn parse_lines(text: &str, bad: &mut Vec<String>) -> Model {
     let mut m = Model::default();
+    let mut proto_missing = false;
     for (ln, line) in text.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let (k, v) = line.split_once('=').ok_or_else(|| format!("line {}: no '='", ln + 1))?;
+        let Some((k, v)) = line.split_once('=') else {
+            bad.push(format!("line {}: no '='", ln + 1));
+            continue;
+        };
         let k = k.trim();
-        set(&mut m, k, v.trim()).map_err(|e| format!("line {}: {}: {}", ln + 1, k, e))?;
+        if let Err(e) = set(&mut m, k, v.trim()) {
+            proto_missing |= k == "dec_proto";
+            bad.push(format!("line {}: {}: {}", ln + 1, k, e));
+        }
+    }
+    if proto_missing {
+        m.dec_on = false;
     }
     // a setup from before the density row: the windows and the pane already say which of the four it was
     if !text.lines().any(|l| l.split('=').next().is_some_and(|k| k.trim() == "density")) {
@@ -1089,7 +1116,7 @@ pub fn parse_setup(text: &str) -> Result<Model, String> {
     if m.zscale > m.tscale {
         m.zscale = m.tscale;
     }
-    Ok(m)
+    m
 }
 
 // ---------------------------------------------------------------------------------------------- waveform CSV
@@ -3705,4 +3732,21 @@ mod header_import_tests {
         b
     }
 
+
+    // Break it catches (rdtsc in the forum): a setup naming a protocol this build does not have, or a key of a newer
+    // build, failing to load as a whole
+    #[test]
+    fn a_setup_loads_what_it_can() {
+        let mut m = Model::default();
+        m.dec_on = true;
+        m.tscale = 5;
+        // unknown keys were always passed over; a protocol this build lacks and a value out of range were not
+        let text = setup_text(&m).replace("dec_proto = ", "dec_proto = NoSuchDecoder # was ") + "avg_hw = maybe\n";
+        assert!(parse_setup(&text).is_err(), "strict parse names the first bad line");
+        let (back, bad) = parse_setup_lenient(&text);
+        assert_eq!(back.tscale, 5, "the rest of the setup stands");
+        assert!(!back.dec_on, "the decoder without its protocol is off");
+        assert!(bad.len() == 2 && bad[0].contains("dec_proto") && bad[1].contains("avg_hw"), "{:?}", bad);
+        assert_eq!(parse_setup_lenient(&setup_text(&m)).1, Vec::<String>::new());
+    }
 }

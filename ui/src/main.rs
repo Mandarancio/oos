@@ -547,14 +547,14 @@ fn device_main(mut ui: Ui, args: &[String]) {
     // settings survive a restart of oos-ui within one boot (rcS restarts it on the hardware after the cold boot)
     let setup_path = std::path::Path::new(SETUP_FILE);
     if let Ok(t) = std::fs::read_to_string(setup_path) {
-        match store::parse_setup(&t) {
-            Ok(m) => {
-                ui.m = m;
-                ui.sync_full();
-                eprintln!("oos-ui: settings restored from {}", SETUP_FILE);
-            }
-            Err(e) => eprintln!("oos-ui: {}: {}", SETUP_FILE, e),
+        // what this build cannot take is left out, the rest stands (store::parse_setup_lenient)
+        let (m, bad) = store::parse_setup_lenient(&t);
+        for e in &bad {
+            eprintln!("oos-ui: {}: left out: {}", SETUP_FILE, e);
         }
+        ui.m = m;
+        ui.sync_full();
+        eprintln!("oos-ui: settings restored from {}", SETUP_FILE);
     }
     // settings of the scope itself: NTP, time zone, Ethernet (/oos/system.conf)
     ui.load_system(sysconf::default_path());
