@@ -40,6 +40,12 @@ New:
   shows e.g. the spectrum, the eye or four windows. Set it up by switching the panel to that view; its analyser page
   is worked out beside the panel's. Saved with a setup (`hdmi_view`), `:DISPlay:VIEW:MONitor <n>` (0: the panel's).
 - Acquire > Draw path: Standard (the fast path) or Batch (PR #7's pipeline), to compare them; `:SYSTem:PIPeline`.
+- System > Features: leave out what you do not use (asked for in the forum): the analyser pages (Spectrum, Eye,
+  Power, Bode, Bandwidth test, Magnetic, Inverter, Double pulse), SIM, Load file, and each decoder (System > Features >
+  Decoders). What is left out is gone from the start menu, the top bar and the pickers and runs nothing. A setting of
+  the scope (`features.off`, `decoders.off` in `/oos/system.conf`); nothing is left out by default.
+- A setup loads what it can: a line this build cannot take (a decoder it does not have, a value out of range) is left
+  out and named, the decoder switched off; before, the whole setup failed.
 
 Changed:
 

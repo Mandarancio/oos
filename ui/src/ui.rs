@@ -61,6 +61,7 @@ mod backlight;
 mod graphics;
 pub mod views;
 mod monitor;
+mod features;
 pub use views::VIEWS_MAX;
 mod script;
 #[cfg(test)]
@@ -339,6 +340,10 @@ pub enum MenuId {
     SelfCal,
     /// network overview and WLAN through a USB stick (ui/wlan.rs)
     Network,
+    /// System > Features (ui/features.rs) and its decoder page
+    Features,
+    /// System > Features > Decoders, page n (`features::DEC_PAGE` a page)
+    Decoders(usize),
     /// which network services run (ui/remote.rs)
     Remote,
     /// the SSH server: password, host key, trusted keys (ui/ssh.rs)
@@ -626,6 +631,9 @@ enum Item {
     Dots,
     /// Display > Bottom bar: Cards or Compact (`Model::bar_compact`)
     BottomBar,
+    /// System > Features: one row per feature of `features::FEATURES`, one per decoder of `PROTOS`
+    FeatOn(usize),
+    FeatDec(usize),
     /// Display > Monitor view (ui/monitor.rs)
     HdmiView,
     Hdmi,
@@ -2621,6 +2629,8 @@ impl Ui {
     pub fn step(&mut self, dt_wall: f64) {
         // Acquire > Draw path: the batch pipeline of PR #7 on the hardware only
         crate::drawpipe::set_enabled(self.m.draw_batch && self.src.is_hw());
+        // System > Features: what is left out runs nothing
+        self.features_enforce();
         self.poll_reference_measurements();
         self.poll_catalog_measurements();
         self.sim_poll();
@@ -5142,6 +5152,11 @@ impl Ui {
             (TopBtn::Menu(MenuId::Storage), "Storage"),
             (TopBtn::System, "System"),
         ];
+        all.retain(|(b, _)| match b {
+            TopBtn::Load => self.feature_on("load"),
+            TopBtn::Menu(m) => !self.menu_left_out(*m),
+            _ => true,
+        });
         if self.record_mode() {
             all.insert(0, (TopBtn::Live, "Live"));
         }
@@ -5663,6 +5678,9 @@ impl Ui {
     // ------------------------------------------------------------------ menus
 
     fn items(&self, menu: MenuId) -> Vec<Item> {
+        if let Some(v) = self.features_items(menu) {
+            return v;
+        }
         let mut v = self.menu_items(menu);
         if !self.off_sources(menu).is_empty() {
             v.push(Item::SrcOn);
@@ -5796,6 +5814,7 @@ impl Ui {
             MenuId::Identify => self.identify_items(),
             MenuId::SelfCal => self.cal_items(),
             MenuId::Network => vec![Item::NetEth, Item::NetRetry10, Item::NetMac, Item::Open(MenuId::Remote), Item::NetPorts, Item::NetWlan, Item::WlanScan, Item::WlanForget, Item::WlanInfo],
+            MenuId::Features | MenuId::Decoders(_) => self.features_items(menu).unwrap_or_default(),
             MenuId::Remote => self.remote_items(),
             MenuId::Ssh => self.ssh_items(),
             MenuId::Time => self.time_items(),
@@ -5814,7 +5833,7 @@ impl Ui {
             MenuId::Windows => self.win_items(),
             MenuId::Zone => vec![Item::ZoneSel, Item::ZoneOn, Item::ZoneSrc, Item::ZoneMode, Item::ZoneBox, Item::ZoneShape, Item::ZoneClear],
             MenuId::Mask => vec![Item::MaskOn, Item::MaskSrc, Item::MaskInvert, Item::MaskX, Item::MaskY, Item::MaskAction, Item::MaskCreate, Item::MaskFromRef, Item::MaskReset, Item::MaskClear, Item::MaskSave, Item::MaskLoad],
-            MenuId::Utility => vec![Item::Offline, Item::QuickAct, Item::TouchLock, Item::AuxOut, Item::BootMode, Item::Overclock, Item::Graphics, Item::Shot, Item::Open(MenuId::SelfCal), Item::Open(MenuId::Network), Item::Open(MenuId::Time), Item::SysInfo, Item::About, Item::Update, Item::UpdateRollback, Item::Stock],
+            MenuId::Utility => vec![Item::Offline, Item::QuickAct, Item::TouchLock, Item::AuxOut, Item::BootMode, Item::Overclock, Item::Graphics, Item::Shot, Item::Open(MenuId::SelfCal), Item::Open(MenuId::Network), Item::Open(MenuId::Features), Item::Open(MenuId::Time), Item::SysInfo, Item::About, Item::Update, Item::UpdateRollback, Item::Stock],
             MenuId::Pick => {
                 let n = self.pick.map_or(0, |p| self.options(p.it).len());
                 (0..n).map(Item::PickOpt).collect()
@@ -5856,7 +5875,11 @@ impl Ui {
         if self.hist_pos.is_some() {
             disp.extend([NavBack, NavFwd]);
         }
-        let ana = vec![Open(MenuId::Spectrum), Open(MenuId::Eye), Open(MenuId::Power), Open(MenuId::Bode), Open(MenuId::BwTest), IdentifyAct, Open(MenuId::Magnetic), Open(MenuId::Inverter), Open(MenuId::Dpt)];
+        // System > Features: what is left out is not offered
+        let ana: Vec<Item> = [Open(MenuId::Spectrum), Open(MenuId::Eye), Open(MenuId::Power), Open(MenuId::Bode), Open(MenuId::BwTest), IdentifyAct, Open(MenuId::Magnetic), Open(MenuId::Inverter), Open(MenuId::Dpt)]
+            .into_iter()
+            .filter(|it| !matches!(it, Open(m) if self.menu_left_out(*m)))
+            .collect();
         // the generator page only on models with one (S models), the LA only with the port
         let mut ins = Vec::new();
         if oos_hal::model::platform().caps.has_gen() {
@@ -5870,7 +5893,7 @@ impl Ui {
         let mut g = vec![
             ("Acquisition", vec![RunStop, SingleAct, AutosetAct, ClearDisp, DefaultAct, Open(MenuId::Acquire)]),
             ("Trigger", vec![Open(MenuId::Trigger), SlopeAct, ForceAct, Open(MenuId::Zone)]),
-            ("Analysis", vec![Open(MenuId::Measure), Open(MenuId::Cursor), Open(MenuId::Math), Open(MenuId::Ref), Open(MenuId::Sim), Open(MenuId::Decode), Open(MenuId::Bus), Open(MenuId::Mask)]),
+            ("Analysis", [Open(MenuId::Measure), Open(MenuId::Cursor), Open(MenuId::Math), Open(MenuId::Ref), Open(MenuId::Sim), Open(MenuId::Decode), Open(MenuId::Bus), Open(MenuId::Mask)].into_iter().filter(|it| !matches!(it, Open(m) if self.menu_left_out(*m))).collect()),
             ("Analysers", ana),
             ("Instruments", ins),
             ("Display", disp),
@@ -6615,6 +6638,8 @@ impl Ui {
             MenuId::Identify => "Identify: tap to apply".into(),
             MenuId::SelfCal => "Self-calibration".into(),
             MenuId::Network => "Network".into(),
+            MenuId::Features => "Features".into(),
+            MenuId::Decoders(k) => format!("Decoders {} of {}", k + 1, PROTOS.len().div_ceil(features::DEC_PAGE)),
             MenuId::Remote => "Remote services".into(),
             MenuId::Ssh => "SSH".into(),
             MenuId::Time => "Date and time".into(),
@@ -6663,7 +6688,7 @@ impl Ui {
 
     fn kind(it: Item) -> Kind {
         if matches!(it, Item::AutoDeskew | Item::ClearDeskew) { return Kind::Action; }
-        if let Some(k) = Self::meas_kind(it).or_else(|| Self::ana_kind(it)).or_else(|| Self::magnetic_kind(it)).or_else(|| Self::inverter_kind(it)).or_else(|| Self::dpt_kind(it)).or_else(|| Self::cal_kind(it)).or_else(|| Self::bode_kind(it)).or_else(|| Self::sim_kind(it)).or_else(|| Self::offline_kind(it)).or_else(|| Self::afg_kind(it)).or_else(|| Self::bw_kind(it)).or_else(|| Self::la_kind(it)).or_else(|| Self::win_kind(it)).or_else(|| Self::bus_kind(it)).or_else(|| Self::time_kind(it)).or_else(|| Self::remote_kind(it)).or_else(|| Self::graphics_kind(it)).or_else(|| Self::views_kind(it)).or_else(|| Self::backlight_kind(it)) {
+        if let Some(k) = Self::meas_kind(it).or_else(|| Self::ana_kind(it)).or_else(|| Self::magnetic_kind(it)).or_else(|| Self::inverter_kind(it)).or_else(|| Self::dpt_kind(it)).or_else(|| Self::cal_kind(it)).or_else(|| Self::bode_kind(it)).or_else(|| Self::sim_kind(it)).or_else(|| Self::offline_kind(it)).or_else(|| Self::afg_kind(it)).or_else(|| Self::bw_kind(it)).or_else(|| Self::la_kind(it)).or_else(|| Self::win_kind(it)).or_else(|| Self::bus_kind(it)).or_else(|| Self::time_kind(it)).or_else(|| Self::remote_kind(it)).or_else(|| Self::graphics_kind(it)).or_else(|| Self::views_kind(it)).or_else(|| Self::features_kind(it)).or_else(|| Self::backlight_kind(it)) {
             return k;
         }
         match it {
@@ -6685,7 +6710,7 @@ impl Ui {
     }
 
     fn label(it: Item) -> &'static str {
-        if let Some(l) = Self::meas_cfg_label(it).or_else(|| Self::ana_label(it)).or_else(|| Self::magnetic_label(it)).or_else(|| Self::inverter_label(it)).or_else(|| Self::dpt_label(it)).or_else(|| Self::cal_label(it)).or_else(|| Self::bode_label(it)).or_else(|| Self::sim_label(it)).or_else(|| Self::offline_label(it)).or_else(|| Self::afg_label(it)).or_else(|| Self::bw_label(it)).or_else(|| Self::la_label(it)).or_else(|| Self::win_label(it)).or_else(|| Self::bus_label(it)).or_else(|| Self::time_label(it)).or_else(|| Self::remote_label(it)).or_else(|| Self::graphics_label(it)).or_else(|| Self::views_label(it)).or_else(|| Self::monitor_label(it)).or_else(|| Self::backlight_label(it)) {
+        if let Some(l) = Self::meas_cfg_label(it).or_else(|| Self::ana_label(it)).or_else(|| Self::magnetic_label(it)).or_else(|| Self::inverter_label(it)).or_else(|| Self::dpt_label(it)).or_else(|| Self::cal_label(it)).or_else(|| Self::bode_label(it)).or_else(|| Self::sim_label(it)).or_else(|| Self::offline_label(it)).or_else(|| Self::afg_label(it)).or_else(|| Self::bw_label(it)).or_else(|| Self::la_label(it)).or_else(|| Self::win_label(it)).or_else(|| Self::bus_label(it)).or_else(|| Self::time_label(it)).or_else(|| Self::remote_label(it)).or_else(|| Self::graphics_label(it)).or_else(|| Self::views_label(it)).or_else(|| Self::monitor_label(it)).or_else(|| Self::features_label(it)).or_else(|| Self::backlight_label(it)) {
             return l;
         }
         match it {
@@ -6968,7 +6993,7 @@ impl Ui {
         // the desktop build reports its own web port and listeners (wlan.rs `net_value`)
         if it == Item::NetWeb && cfg!(windows) && !self.lan_status.is_empty() { return self.net_value(it); }
         if it == Item::CatSourceD { return self.wave_name(self.cat_d); }
-        if let Some(v) = self.meas_value(it).or_else(|| self.ana_value(it)).or_else(|| self.magnetic_value(it)).or_else(|| self.inverter_value(it)).or_else(|| self.dpt_value(it)).or_else(|| self.cal_value(it)).or_else(|| self.bode_value(it)).or_else(|| self.sim_value(it)).or_else(|| self.offline_value(it)).or_else(|| self.afg_value(it)).or_else(|| self.bw_value(it)).or_else(|| self.la_value(it)).or_else(|| self.win_value(it)).or_else(|| self.bus_value(it)).or_else(|| self.time_value(it)).or_else(|| self.remote_value(it)).or_else(|| self.graphics_value(it)).or_else(|| self.views_value(it)).or_else(|| self.monitor_value(it)).or_else(|| self.backlight_value(it)) {
+        if let Some(v) = self.meas_value(it).or_else(|| self.ana_value(it)).or_else(|| self.magnetic_value(it)).or_else(|| self.inverter_value(it)).or_else(|| self.dpt_value(it)).or_else(|| self.cal_value(it)).or_else(|| self.bode_value(it)).or_else(|| self.sim_value(it)).or_else(|| self.offline_value(it)).or_else(|| self.afg_value(it)).or_else(|| self.bw_value(it)).or_else(|| self.la_value(it)).or_else(|| self.win_value(it)).or_else(|| self.bus_value(it)).or_else(|| self.time_value(it)).or_else(|| self.remote_value(it)).or_else(|| self.graphics_value(it)).or_else(|| self.views_value(it)).or_else(|| self.monitor_value(it)).or_else(|| self.features_value(it)).or_else(|| self.backlight_value(it)) {
             return v;
         }
         let m = &self.m;
@@ -7228,7 +7253,7 @@ impl Ui {
             }
             return;
         }
-        if self.bus_adjust(it, d) || self.meas_adjust(it, d) || self.ana_adjust(it, d) || self.magnetic_adjust(it, d) || self.inverter_adjust(it, d) || self.dpt_adjust(it, d) || self.cal_adjust(it, d) || self.bode_adjust(it, d) || self.sim_adjust(it, d) || self.offline_adjust(it, d) || self.afg_adjust(it, d) || self.bw_adjust(it, d) || self.la_adjust(it, d) || self.win_adjust(it, d) || self.time_adjust(it, d) || self.remote_adjust(it, d) || self.graphics_adjust(it, d) || self.views_adjust(it, d) || self.monitor_adjust(it, d) || self.backlight_adjust(it, d) {
+        if self.bus_adjust(it, d) || self.meas_adjust(it, d) || self.ana_adjust(it, d) || self.magnetic_adjust(it, d) || self.inverter_adjust(it, d) || self.dpt_adjust(it, d) || self.cal_adjust(it, d) || self.bode_adjust(it, d) || self.sim_adjust(it, d) || self.offline_adjust(it, d) || self.afg_adjust(it, d) || self.bw_adjust(it, d) || self.la_adjust(it, d) || self.win_adjust(it, d) || self.time_adjust(it, d) || self.remote_adjust(it, d) || self.graphics_adjust(it, d) || self.views_adjust(it, d) || self.monitor_adjust(it, d) || self.features_adjust(it, d) || self.backlight_adjust(it, d) {
             return;
         }
         if matches!(it, Item::TrigSrc | Item::TrigSrc2) {
@@ -7638,8 +7663,12 @@ impl Ui {
             Item::DecThr => self.m.dec_thr += d as f32 * self.decoder_vpd() / 25.0,
             Item::DecFmt => self.m.dec_ascii = !self.m.dec_ascii,
             Item::DecProto => {
-                let i = PROTOS.iter().position(|&x| x == self.m.dec_proto).unwrap();
-                self.set_dec_proto(PROTOS[cyc(i, PROTOS.len(), d)]);
+                // only the decoders System > Features offers
+                let on = self.protos_on();
+                let i = on.iter().position(|&x| x == self.m.dec_proto).unwrap_or(0);
+                if let Some(&p) = on.get(cyc(i, on.len(), d)) {
+                    self.set_dec_proto(p);
+                }
             }
             Item::DecFdRate => self.m.dec_fdrate = cyc(self.m.dec_fdrate, crate::decode::FD_RATES.len(), d),
             Item::DecArate => self.m.dec_arate = cyc(self.m.dec_arate, crate::decode::ARINC_RATES.len(), d),
@@ -8302,7 +8331,7 @@ impl Ui {
 
     /// The options of a choice item for segmented buttons (empty: shown as - value +).
     fn options(&self, it: Item) -> Vec<String> {
-        if let Some(o) = self.meas_options(it).or_else(|| self.ana_options(it)).or_else(|| self.magnetic_options(it)).or_else(|| self.inverter_options(it)).or_else(|| self.dpt_options(it)).or_else(|| self.cal_options(it)).or_else(|| self.bode_options(it)).or_else(|| self.sim_options(it)).or_else(|| self.offline_options(it)).or_else(|| self.afg_options(it)).or_else(|| self.bw_options(it)).or_else(|| self.la_options(it)).or_else(|| self.win_options(it)).or_else(|| self.bus_options(it)).or_else(|| self.time_options(it)).or_else(|| self.remote_options(it)).or_else(|| self.graphics_options(it)).or_else(|| self.views_options(it)).or_else(|| self.monitor_options(it)) {
+        if let Some(o) = self.meas_options(it).or_else(|| self.ana_options(it)).or_else(|| self.magnetic_options(it)).or_else(|| self.inverter_options(it)).or_else(|| self.dpt_options(it)).or_else(|| self.cal_options(it)).or_else(|| self.bode_options(it)).or_else(|| self.sim_options(it)).or_else(|| self.offline_options(it)).or_else(|| self.afg_options(it)).or_else(|| self.bw_options(it)).or_else(|| self.la_options(it)).or_else(|| self.win_options(it)).or_else(|| self.bus_options(it)).or_else(|| self.time_options(it)).or_else(|| self.remote_options(it)).or_else(|| self.graphics_options(it)).or_else(|| self.views_options(it)).or_else(|| self.monitor_options(it)).or_else(|| self.features_options(it)) {
             return o;
         }
         let v: &[&str] = match it {
@@ -8342,7 +8371,7 @@ impl Ui {
                 }
             }
             Item::WinModeI => &["Enter", "Exit", "Inside"],
-            Item::DecProto => return PROTOS.iter().map(|p| p.name().to_string()).collect(),
+            Item::DecProto => return self.protos_on().iter().map(|p| p.name().to_string()).collect(),
             Item::DecFdRate => &["1 M", "2 M", "4 M", "5 M", "8 M"],
             Item::DecArate => &ARATE_NAMES,
             Item::DecTick => return crate::decode::SENT_TICKS.iter().map(|&t| tick_name(t)).collect(),
