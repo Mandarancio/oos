@@ -3356,7 +3356,8 @@ impl Ui {
         self.draw_info(cv);
         self.draw_zoom_box(cv);
         self.draw_full_btn(cv);
-        if !(self.eye_open() && self.m.eye_place==EyePlace::Full && self.workspace.eye_float.is_none()) {
+        // the zoom magnifier belongs to the scope picture: an analyser page has its own controls under it
+        if !(self.eye_open() && self.m.eye_place==EyePlace::Full && self.workspace.eye_float.is_none()) && !self.view_on() {
             self.draw_zoom_btn(cv);
         }
         self.draw_auto_bar(cv);
@@ -9359,7 +9360,7 @@ impl Ui {
         let on_full = ph == Phase::Down && !covered && self.full_btn().1.contains(x, y);
         // the plot buttons are taps; a zoom box starts on the waveform, not on them
         let on_chrome = ph == Phase::Down
-            && (on_full || self.zoom_btn().1.contains(x, y) || (self.m.zoom && self.zoom_readout().contains(x, y)) || (self.view_on() && self.view_btn().contains(x, y)));
+            && (on_full || (self.zoom_btn().1.contains(x, y) && !self.view_on()) || (self.m.zoom && self.zoom_readout().contains(x, y)) || (self.view_on() && self.view_btn().contains(x, y)));
         let zmap = if self.zoom_arm && in_plot && !on_chrome { self.zoom_drag_map(x, y) } else { None };
         let full_from = if on_full {
             let (r, _) = self.full_btn();
@@ -9855,9 +9856,8 @@ impl Ui {
             if y<a.y+workspace::HEADER { self.eye_header_tap(x,y); }
             return;
         }
-        if self.zoom_btn().1.contains(x, y) {
-            if self.view_on() { self.toast("Not on this view"); }
-            else { self.set_zoom(!self.m.zoom); }
+        if self.zoom_btn().1.contains(x, y) && !self.view_on() {
+            self.set_zoom(!self.m.zoom);
             return;
         }
         if self.zoom_close_tap(x, y) { return; }
