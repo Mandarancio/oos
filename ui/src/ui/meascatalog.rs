@@ -396,6 +396,7 @@ struct Hit {
 struct Lay {
     r: Rect,
     close: Rect,
+    back: Option<Rect>,
     settings: Rect,
     all: Rect,
     selected: Rect,
@@ -457,37 +458,43 @@ impl Ui {
         }
     }
 
+    /// The measurement page. Header: the title, then what applies to every measurement (gate, the selected ones, the
+    /// settings). Left: the categories, and under them the way to the list of all standard measurements and the
+    /// channel pairs. Right of them: the sources, the measurements of the category, and at the bottom the one that
+    /// is picked with its description and Add / Remove.
     fn catalog_lay(&self) -> Lay {
         let r = Rect::new(8, TOP.h + 4, W - 16, self.frame().bottom.y - TOP.h - 8);
         let close = Rect::new(r.x + r.w - 56, r.y + 6, 44, DLG_CTRL);
-        let settings = Rect::new(close.x - 108, r.y + 6, 100, 40);
-        let all = Rect::new(r.x + 250, r.y + 6, 164, 40);
-        let selected = Rect::new(all.x + all.w + 8, all.y, 164, all.h);
-        let gate = Rect::new(selected.x+selected.w+46,all.y,(settings.x-selected.x-selected.w-54).max(1),all.h);
+        let back = self.parent.map(|_| Rect::new(close.x - 86, close.y, 78, DLG_CTRL));
+        let settings = Rect::new(back.unwrap_or(close).x - 108, r.y + 6, 100, 40);
+        let selected = Rect::new(settings.x - 158, r.y + 6, 150, 40);
+        let gate = Rect::new(selected.x - 16 - 220, r.y + 6, 220, 40);
+        let side_w = 168;
+        let top = r.y + 54;
         let mut tabs = Vec::new();
-        let tw = (r.w - 24) / TABS.len() as i32;
         for i in 0..TABS.len() {
-            tabs.push(Rect::new(r.x + 12 + i as i32 * tw, r.y + 52, tw - 6, 40));
+            tabs.push(Rect::new(r.x + 12, top + i as i32 * 44, side_w, 40));
         }
-        let preview = Rect::new(r.x + 12, r.y + 98, r.w - 24, 88);
-        let mark = Rect::new(preview.x + 8, preview.y + 8, 168, preview.h - 16);
+        let all = Rect::new(r.x + 12, r.y + r.h - 48, side_w, 40);
+        let cx = r.x + 12 + side_w + 12;
+        let cw = r.x + r.w - 12 - cx;
+        let preview = Rect::new(cx, r.y + r.h - 72, cw, 64);
+        let mark = Rect::new(preview.x + 8, preview.y + 10, 72, preview.h - 20);
+        let add = Rect::new(preview.x + preview.w - 128, preview.y + 12, 120, 40);
         let slots = self.source_slots();
         let rows = if slots.len() > 2 { 2 } else { 1 };
-        let src_y = preview.y + preview.h + 8;
         let src_h = 40;
-        let add = Rect::new(r.x + r.w - 132, src_y, 120, src_h);
-        let room = add.x - r.x - 20;
-        let per = room / (slots.len().min(2) as i32).max(1);
+        let per = cw / 2;
         let mut sources = Vec::new();
         for (i, (id, _, _)) in slots.iter().enumerate() {
             let col = (i % 2) as i32;
             let row = (i / 2) as i32;
-            let x = r.x + 12 + col * per;
-            let y = src_y + row * (src_h + 6);
+            let x = cx + col * per;
+            let y = top + row * (src_h + 6);
             sources.push(Hit { n: *id as u16, r: Rect::new(x + per / 3, y, per - per / 3 - 8, src_h) });
         }
-        let view_y = src_y + rows * (src_h + 6) + 4;
-        let view = Rect::new(r.x + 10, view_y, r.w - 64, r.y + r.h - 8 - view_y);
+        let view_y = top + rows * (src_h + 6) + 2;
+        let view = Rect::new(cx, view_y, cw - 46, preview.y - 8 - view_y);
         let mut y = 0;
         let mut groups = Vec::new();
         let mut items = Vec::new();
@@ -511,12 +518,12 @@ impl Ui {
             y += nrows * (bh + gap) + 4;
         }
         let (scroll_up, scroll_down) = if y > view.h {
-            let x = view.x + view.w + 2;
+            let x = view.x + view.w + 6;
             (Some(Rect::new(x, view.y, 40, 42)), Some(Rect::new(x, view.y + view.h - 42, 40, 42)))
         } else {
             (None, None)
         };
-        Lay { r, close, settings, all, selected, gate, tabs, preview, mark, sources, add, view, groups, items, scroll_up, scroll_down, content: y }
+        Lay { r, close, back, settings, all, selected, gate, tabs, preview, mark, sources, add, view, groups, items, scroll_up, scroll_down, content: y }
     }
 
     #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
@@ -563,7 +570,7 @@ impl Ui {
             label:Rect::new(0,0,0,0),ctrl:hit.r,ctl:Ctl::Pick}).collect::<Vec<_>>();
         rows.push(Row{it:Item::MeasGate,label:Rect::new(0,0,0,0),ctrl:lay.gate,
             ctl:Ctl::Seg(vec!["Screen".into(),"Full record".into()],Some(usize::from(self.m.meas_full_record)))});
-        Dlg { r: lay.r, close: lay.close, back: None, rows, heads: Vec::new() }
+        Dlg { r: lay.r, close: lay.close, back: lay.back, rows, heads: Vec::new() }
     }
 
     fn content_h(&self) -> i32 {
@@ -582,53 +589,60 @@ impl Ui {
         let f = &self.fonts();
         cv.round(lay.r, 8, ACCENT, 255);
         cv.round(lay.r.inset(2), 7, DLG_BG, 255);
-        cv.text(&f.mb, lay.r.x + 16, lay.r.y + 28, "ADD MEASUREMENTS", TEXT);
+        cv.text(&f.mb, lay.r.x + 16, lay.r.y + 31, "Measure", TEXT);
         btn(cv, lay.close, BTN, BTN_BORDER);
         cv.text_in(&f.mb, lay.close, 1, "\u{d7}", TEXT);
+        if let Some(back) = lay.back {
+            btn(cv, back, BTN, BTN_BORDER);
+            cv.text_in(&f.sb, back, 1, "Back", TEXT);
+        }
         btn(cv, lay.settings, BTN, BTN_BORDER);
         cv.text_in(&f.s, lay.settings, 1, "Settings", TEXT);
-        btn(cv, lay.all, BTN, BTN_BORDER);
-        cv.text_in(&f.s, lay.all, 1, "All 60 / Pairs", TEXT);
         btn(cv, lay.selected, BTN, BTN_BORDER);
         cv.text_in(&f.s, lay.selected, 1, &format!("Selected ({})",self.measurement_count()), TEXT);
-        cv.text_in(&f.s,Rect::new(lay.gate.x-40,lay.gate.y,36,lay.gate.h),1,"Gate",DIM);
+        cv.text_in(&f.s,Rect::new(lay.gate.x-44,lay.gate.y,38,lay.gate.h),2,"Gate",DIM);
         for (index,label) in ["Screen","Full record"].into_iter().enumerate() {
             let half=(lay.gate.w-4)/2;let rect=Rect::new(lay.gate.x+index as i32*(half+4),lay.gate.y,half,lay.gate.h);
             btn(cv,rect,if self.m.meas_full_record==(index==1){ACCENT}else{BTN},BTN_BORDER);
             cv.text_in(&f.s,rect,1,label,if self.m.meas_full_record==(index==1){DARK_TEXT}else{TEXT});
         }
+        // the categories; the one shown is filled
         for (i, rect) in lay.tabs.iter().enumerate() {
             let on = i as u8 == self.cat_tab;
-            if on {
-                cv.round(*rect, 4, rgb(0x2e, 0x2e, 0x32), 255);
-                cv.round_outline(*rect, 4, ACCENT);
-            }
-            cv.text_in(&f.s, *rect, 1, TABS[i], if on { TEXT } else { DIM });
+            btn(cv, *rect, if on { ACCENT } else { BTN }, BTN_BORDER);
+            let (font, tr, _) = self.btn_text(*rect, false, TABS[i]);
+            cv.text_in(font, tr, 1, TABS[i], if on { DARK_TEXT } else { TEXT });
         }
+        // under them: the list of all standard measurements with the channel pairs
+        btn(cv, lay.all, BTN, BTN_BORDER);
+        cv.text_in(&f.s, Rect::new(lay.all.x, lay.all.y, lay.all.w - 18, lay.all.h), 1, "All 60 / Pairs", TEXT);
+        chevron(cv, lay.all.x + lay.all.w - 14, lay.all.y + lay.all.h / 2, 1, DIM);
+        // the measurement that is picked: sign, name, what it is, and Add / Remove
         cv.round(lay.preview, 6, rgb(0x24, 0x24, 0x28), 255);
         let sel = self.cat_sel();
         let info = meta(sel);
         self.draw_mark(cv, lay.mark, info.mark, AMBER);
-        let tx = lay.mark.x + lay.mark.w + 16;
-        let tw = lay.preview.x + lay.preview.w - tx - 12;
-        cv.text(&f.mb, tx, lay.preview.y + 28, info.name, TEXT);
-        let mut y = lay.preview.y + 48;
-        for line in wrap_lines(&f.s, info.blurb, tw) {
-            cv.text(&f.s, tx, y, &line, LABEL);
-            y += f.s.size + 2;
-            if y > lay.preview.y + lay.preview.h - 24 {
-                break;
-            }
-        }
+        let tx = lay.mark.x + lay.mark.w + 14;
+        let tw = lay.add.x - tx - 12;
+        cv.set_clip(Rect::new(tx, lay.preview.y, tw, lay.preview.h));
+        cv.text(&f.mb, tx, lay.preview.y + 24, info.name, TEXT);
         if matches!(info.kind,CatKind::Wave) && self.cat_added(sel) {
             let reading=self.catalog_reading(sel,[self.meas_src,self.meas_src_b,self.cat_c,self.cat_d]);
             let status=if reading.computing { "Computing".into() }
                 else if let Some(reason)=reading.reason { format!("Unavailable: {reason}") }
                 else if reading.value.is_finite() { format!("{} · {}",si(reading.value,info.unit),reading.quality) }
                 else { format!("---- · {}",reading.quality) };
-            cv.set_clip(Rect::new(tx,lay.preview.y+lay.preview.h-23,tw,20));
-            cv.text(&f.s,tx,lay.preview.y+lay.preview.h-8,&status,DIM);cv.no_clip();
+            cv.text(&f.s,tx+f.mb.width(info.name)+14,lay.preview.y+24,&status,DIM);
         }
+        let mut y = lay.preview.y + 43;
+        for line in wrap_lines(&f.s, info.blurb, tw) {
+            if y > lay.preview.y + lay.preview.h - 4 {
+                break;
+            }
+            cv.text(&f.s, tx, y, &line, LABEL);
+            y += f.s.size + 2;
+        }
+        cv.no_clip();
         let slots = self.source_slots();
         for (hit, (_, label, id)) in lay.sources.iter().zip(&slots) {
             let lab = Rect::new(hit.r.x - hit.r.w / 2, hit.r.y, hit.r.w / 2, hit.r.h);
@@ -637,7 +651,7 @@ impl Ui {
             cv.text_in(&f.s, Rect::new(hit.r.x + 8, hit.r.y, hit.r.w - 22, hit.r.h), 0, &self.src_label(*id), TEXT);
             chevron_down(cv, hit.r.x + hit.r.w - 16, hit.r.y + hit.r.h / 2 - 3, DIM);
         }
-        btn(cv, lay.add, BTN, BTN_BORDER);
+        btn(cv, lay.add, BTN, ACCENT);
         cv.text_in(&f.mb, lay.add, 1, if self.cat_added(sel) { "Remove" } else { "Add" }, TEXT);
         cv.set_clip(lay.view);
         let scroll = self.cat_scroll;
@@ -659,12 +673,14 @@ impl Ui {
             let on = c == sel;
             let added = self.cat_added(c);
             let set = self.catalog_set_on(rect, c);
-            btn(cv, rect, if added { rgb(0x32, 0x32, 0x36) } else { BTN }, if on { ACCENT } else { BTN_BORDER });
+            btn(cv, rect, if added { ACCENT } else { BTN }, if on { ACCENT } else { BTN_BORDER });
             if on {
-                cv.round_outline(rect, 5, ACCENT);
+                // the picked one: a frame, inside the fill where it is added
+                cv.round_outline(if added { rect.inset(3) } else { rect }, 5, if added { DARK_TEXT } else { ACCENT });
             }
+            let ink = if added { DARK_TEXT } else { TEXT };
             let icon = Rect::new(rect.x + 4, rect.y + 6, 32, rect.h - 12);
-            self.draw_mark(cv, icon, meta(c).mark, BLUE);
+            self.draw_mark(cv, icon, meta(c).mark, if added { DARK_TEXT } else { BLUE });
             let (a, b) = split_name(meta(c).name);
             let text_w = rect.w - 46 - if set.is_some() { 52 } else { 0 };
             let text = Rect::new(rect.x + 40, rect.y, text_w, rect.h);
@@ -673,10 +689,10 @@ impl Ui {
                 cv.text_in(&f.s, set, 1, "Set", TEXT);
             }
             if let Some(b) = b {
-                cv.text_in(&f.s, Rect::new(text.x, text.y, text.w, text.h / 2), 0, a, TEXT);
-                cv.text_in(&f.s, Rect::new(text.x, text.y + text.h / 2, text.w, text.h / 2), 0, b, TEXT);
+                cv.text_in(&f.s, Rect::new(text.x, text.y, text.w, text.h / 2), 0, a, ink);
+                cv.text_in(&f.s, Rect::new(text.x, text.y + text.h / 2, text.w, text.h / 2), 0, b, ink);
             } else {
-                cv.text_in(&f.s, text, 0, a, TEXT);
+                cv.text_in(&f.s, text, 0, a, ink);
             }
         }
         cv.no_clip();
@@ -737,6 +753,10 @@ impl Ui {
         }
         if lay.close.contains(x, y) {
             self.close_menu();
+            return true;
+        }
+        if lay.back.is_some_and(|b| b.contains(x, y)) {
+            self.menu_back();
             return true;
         }
         if lay.settings.contains(x, y) {

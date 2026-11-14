@@ -9,6 +9,12 @@ new from them are the Cursor B source row and the power measurement tests.
 
 New:
 
+- Measure page in one order: the categories down the left (Basic, Jitter & eye, Power, Motor drive, Power rails,
+  Double pulse; under them All 60 / Pairs), right of them the sources and the measurements, at the bottom the picked
+  one with its description and Add / Remove. An added measurement is filled like every chosen option. The header
+  keeps what applies to all: Gate, Selected, Settings. Analysis > Measure in the start menu opens this page (with
+  Back), as the Measure button and key do. The settings are in named groups: Sources, Measure over, Display,
+  Parameters, More.
 - Top bar: Measure, Cursor, Display and Storage only. System is the first entry of its group in the start menu, SIM is
   under Analysis there, and Load file is a row of the Reference menu (the file comes from storage on the scope, from
   the file dialog in the desktop window).

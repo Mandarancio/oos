@@ -35,7 +35,7 @@ groups, each entry 140 x 40 px:
 |---|---|
 | Acquisition | Run/Stop (orange while running), Single, Autoset, Clear, Default, Acquire > |
 | Trigger | Trigger >, Slope (steps like the key, the menu stays open), Force |
-| Analysis | Measure >, Cursor > (turns the cursors on like the key), Math >, Reference > (with Load file), SIM >, Decode >, Mask > |
+| Analysis | Measure > (the measurement page, as the Measure button and key open it), Cursor > (turns the cursors on like the key), Math >, Reference > (with Load file), SIM >, Decode >, Mask > |
 | Display | Display >, Horizontal >, History (Navigate key; "Live" while a stored record is shown, then Older / Newer appear) |
 | System | System > (with About and the Quick key setting), Storage >, Screenshot, Quick · <action> (runs the Quick key action), Touch lock, Power (the power dialog) |
 
