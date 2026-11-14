@@ -2946,7 +2946,7 @@ mod tests {
         assert_eq!(parse_setup(&text).unwrap(), m);
         assert!(parse_setup("dec_proto = NoSuchBus").is_err());
         let mut m = Model::default();
-        (m.dec_proto, m.dec_src, m.dec_cs, m.dec_uspeed) = (Proto::Usb, 2, Some(3), 1);
+        (m.dec_proto, m.dec_src, m.dec_cs, m.dec_uspeed) = (Proto::from_key("Usb").unwrap(), 2, Some(3), 1);
         let text = setup_text(&m);
         assert!(text.contains("dec_proto = Usb\n") && text.contains("dec_uspeed = 1\n"));
         assert_eq!(parse_setup(&text).unwrap(), m);

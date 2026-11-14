@@ -125,7 +125,9 @@ pub fn settings(m: &Model, program_afe: bool) -> Settings {
     // protocol trigger: hardware edge on the line where frames start (SPI: chip select, else the data line)
     let mut src = if m.trig_type == TrigType::Bus {
         match (m.dec_proto, m.dec_cs) {
-            (Proto::Spi, Some(c)) | (Proto::I2s, Some(c)) => c,
+            (Proto::Spi, Some(c)) => c,
+            // a module: the line of its start role
+            (Proto::Module(i), _) => [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][crate::protocols::get(i).start_role().min(3)].unwrap_or(m.dec_src),
             _ => m.dec_src,
         }
     } else {
@@ -149,7 +151,6 @@ pub fn settings(m: &Model, program_afe: bool) -> Settings {
         slope: match (m.trig_type, m.slope) {
             // frames start with a falling edge (start bit, SOF, break, I2C start, CS); I2S and the modules that say so
             // (1553, ARINC 429): either edge
-            (TrigType::Bus, _) if m.dec_proto == Proto::I2s => tpu::Slope::Either,
             (TrigType::Bus, _) if m.dec_proto.module().is_some() => match m.dec_proto.module().map(|p| p.start_edge()) {
                 Some(Slope::Rise) => tpu::Slope::Rising,
                 Some(Slope::Either) => tpu::Slope::Either,
@@ -444,7 +445,8 @@ fn bus_line(m: &Model) -> Option<u8> {
         return None;
     }
     match (m.dec_proto, m.dec_la[2]) {
-        (Proto::Spi, Some(n)) | (Proto::I2s, Some(n)) => Some(n),
+        (Proto::Spi, Some(n)) => Some(n),
+        (Proto::Module(i), _) => m.dec_la[crate::protocols::get(i).start_role().min(3)].or(m.dec_la[0]),
         _ => m.dec_la[0],
     }
 }

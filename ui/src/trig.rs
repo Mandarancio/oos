@@ -37,8 +37,8 @@ pub fn decode_la(m: &Model, words: &[u16], dt: f64) -> Result<Vec<Packet>, &'sta
 
 /// `decode` with the threshold and hysteresis given.
 pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32) -> Result<Vec<Packet>, &'static str> {
-    use oos_dsp::decode::{can, i2c, i2s, lin, spi, uart};
-    use oos_dsp::{decode_ext as x1, decode_ext3 as x3};
+    use oos_dsp::decode::{can, i2c, lin, spi, uart};
+    use oos_dsp::decode_ext as x1;
     let get = |c: usize| ch.get(c).copied().filter(|v| !v.is_empty()).ok_or("source channel off");
     let opt = |c: Option<usize>| -> Result<Option<&[f32]>, &'static str> { c.map(get).transpose() };
     // RS-485 / differential: A - B, threshold around 0 V like the pair's receiver
@@ -72,7 +72,6 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         }
         Proto::Can => can(line, dt, can_rate, thr, hy, m.dec_canh),
         Proto::Lin => lin(line, dt, baud, thr, hy),
-        Proto::I2s => i2s(get(m.dec_src2)?, opt(m.dec_cs)?, get(m.dec_src)?, m.dec_bits, thr, hy),
         Proto::Parallel => {
             // dec_bits data lines from the main source upwards, skipping the clock
             let clk = m.dec_cs;
@@ -80,7 +79,6 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
             x1::parallel(&lines, opt(clk)?, oos_dsp::trigger::Slope::Rising, thr, hy)
         }
         // D- optional (D+ alone: no SE0)
-        Proto::Usb => x3::usb(get(m.dec_src)?, opt(m.dec_cs)?, dt, crate::decode::USB_SPEEDS[m.dec_uspeed], thr, hy),
         Proto::Cphy => oos_dsp::cphy::decode(get(m.dec_src)?, get(m.dec_src2)?,
             opt(m.dec_cs)?.ok_or("C-PHY C source missing")?, dt,
             (m.dec_cphy_rate > 0.0).then_some(m.dec_cphy_rate), thr.abs().max(1e-6)),
@@ -89,7 +87,7 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
             let p = crate::protocols::get(i);
             let r = p.roles();
             let lines = [Some(line), if r[1].is_some() { Some(get(m.dec_src2)?) } else { None }, if r[2].is_some() { opt(m.dec_cs)? } else { None }, if r[3].is_some() { opt(m.dec_src4)? } else { None }];
-            return p.decode(&crate::protocols::Lines { lines, dt, thr, hy, opt: m.dec_opts() });
+            return p.decode(&crate::protocols::Lines { lines, dt, thr, hy, opt: m.dec_opts(), sh: crate::protocols::Shared::of(m) });
         }
     })
 }
@@ -119,7 +117,6 @@ pub fn matches(m: &Model, p: &Packet) -> bool {
             _ => false,
         },
         // USB: the token address or the PID byte
-        BusWhat::Id if m.dec_proto == Proto::Usb => matches!(p.kind, Kind::Field("ADDR" | "PID")) && p.value == v,
         BusWhat::Id => (matches!(p.kind, Kind::Id { .. } | Kind::Addr { .. } | Kind::Word { cmd: true }) || p.kind == Kind::Field("ROM") || p.kind == Kind::Field("CMD") || p.kind == Kind::Field("HDR") || p.kind == Kind::Field("STAT")) && p.value == v,
         BusWhat::Data => matches!(p.kind, Kind::Data | Kind::Sample { .. } | Kind::Word { cmd: false }) && p.value == v,
         BusWhat::Error => !p.ok,

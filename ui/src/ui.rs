@@ -6196,10 +6196,26 @@ impl Ui {
             Proto::Spi => v.extend([DecMode, DecBits]),
             Proto::Can => v.extend([DecCanRate, DecCanH]),
             Proto::Lin => v.push(DecBaud),
-            Proto::I2s | Proto::Parallel => v.push(DecBits),
-            Proto::Usb => v.push(DecUsbSpeed),
+            Proto::Parallel => v.push(DecBits),
             Proto::Cphy => v.push(DecCphyRate),
-            Proto::Module(_) => v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt)),
+            Proto::Module(_) => {
+                // the shared rows it names, then its own options
+                use crate::protocols::Row;
+                for r in p.module().map_or(&[][..], |x| x.shared()) {
+                    v.push(match r {
+                        Row::Baud => DecBaud,
+                        Row::Bits => DecBits,
+                        Row::Parity => DecParity,
+                        Row::SpiMode => DecMode,
+                        Row::CanRate => DecCanRate,
+                        Row::CanH => DecCanH,
+                        Row::UsbSpeed => DecUsbSpeed,
+                        Row::CphyRate => DecCphyRate,
+                        Row::Fmt => DecFmt,
+                    });
+                }
+                v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt));
+            }
             _ => {}
         }
         // LA lines: the probe's comparators set the levels (LA page)
@@ -6245,12 +6261,6 @@ impl Ui {
             Proto::Lin => {
                 (m.dec_src, m.dec_baud) = (2, 4);
             }
-            // demo: WS on CH1, SD on CH2, SCK on CH3
-            Proto::I2s => {
-                (m.dec_src, m.dec_src2, m.dec_cs, m.dec_bits) = (1, 2, Some(0), 16);
-                m.ch[0].on = true;
-                m.ch[1].on = true;
-            }
             Proto::Parallel => {
                 (m.dec_src, m.dec_bits, m.dec_cs) = (0, 3, Some(3));
                 for channel in &mut m.ch { channel.on = true; }
@@ -6259,16 +6269,20 @@ impl Ui {
                 (m.dec_src, m.dec_src2, m.dec_cs, m.dec_thr, m.dec_bits) = (0, 1, Some(2), 0.02, 16);
                 m.dec_la_in = false;
             }
-            // demo: D+ on CH3, D- on CH4, 3.3 V
-            Proto::Usb => {
-                (m.dec_src, m.dec_cs, m.dec_thr) = (2, Some(3), 1.65);
-            }
             // a module: its demo channels and threshold; its options from their defaults when it is newly chosen
             Proto::Module(i) => {
                 let s = crate::protocols::get(i).setup();
                 (m.dec_src, m.dec_cs, m.dec_src4, m.dec_thr) = (s.src[0].unwrap_or(2), s.src[2], s.src[3], s.thr);
                 if let Some(c) = s.src[1] {
                     m.dec_src2 = c;
+                }
+                if s.show {
+                    for c in s.src.into_iter().flatten().filter(|&c| c < NCH) {
+                        m.ch[c].on = true;
+                    }
+                }
+                if let Some(b) = s.bits {
+                    m.dec_bits = b;
                 }
                 if changed {
                     m.dec_opt = crate::protocols::opt_default(i);
@@ -6307,9 +6321,6 @@ impl Ui {
                 (m.trig_type, m.trig_src, m.slope, m.trig_level) = (TrigType::Edge, 1, Slope::Fall, 1.65);
             }
             // CAN start of frame / LIN break: first falling edge after the bus idle
-            Proto::I2s => {
-                (m.trig_type, m.trig_src, m.slope, m.trig_level) = (TrigType::Edge, 0, Slope::Fall, 1.65);
-            }
             Proto::Can | Proto::Lin => {
                 (m.trig_type, m.trig_src, m.slope, m.nth_idle, m.nth_n, m.trig_level) = (TrigType::NthEdge, 2, Slope::Fall, 20e-6, 1, 1.65);
             }
@@ -6503,9 +6514,7 @@ impl Ui {
                 Proto::Can => (BusWhat::Id, 0x123),
                 Proto::Lin => (BusWhat::Id, 0x21),
                 Proto::I2c => (BusWhat::Id, 0x50),
-                Proto::I2s => (BusWhat::Data, 0x7fff),
                 // the demo device's address
-                Proto::Usb => (BusWhat::Id, 5),
                 Proto::Module(i) => crate::protocols::get(i).trigger_default(),
                 _ => (BusWhat::Frame, 0x40),
             };
@@ -10119,11 +10128,6 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
     let hex = |v: u32| if m.dec_bits > 8 { format!("{:04X}", v) } else { format!("{:02X}", v) };
             match p.kind {
                 Kind::Addr { read } => format!("{} {}{}", hex(p.value), if read { "R" } else { "W" }, if p.ok { "" } else { " N" }),
-                // USB: the speed of the SYNC, PID names, bytes
-                Kind::Field("SYNC") if m.dec_proto == Proto::Usb => format!("SYNC {}{}", if p.value >= 12000 { "FS" } else { "LS" }, if p.ok { "" } else { " !" }),
-                Kind::Field("PID") if m.dec_proto == Proto::Usb && p.ok => oos_dsp::decode_ext3::usb_pid_name(p.value as u8).to_string(),
-                Kind::Field("PID") if m.dec_proto == Proto::Usb => format!("PID {:02X} !", p.value),
-                Kind::Data if m.dec_proto == Proto::Usb => format!("{:02X}", p.value),
                 Kind::Id { ext, rtr } => format!("ID {}{}{}", if ext { format!("{:08X}", p.value) } else if m.dec_proto == Proto::Lin { format!("{:02X}", p.value) } else { format!("{:03X}", p.value) }, if rtr { " RTR" } else { "" }, if p.ok { "" } else { " !P" }),
                 Kind::Sample { right } => format!("{} {:0w$X}", if right { "R" } else { "L" }, p.value, w = (m.dec_bits as usize).div_ceil(4)),
                 Kind::Word { cmd } => format!("{} {:04X}{}", if cmd { "C/S" } else { "D" }, p.value, if p.ok { "" } else { " !P" }),
@@ -11044,7 +11048,7 @@ mod tests {
         let tol = 3.0 * tdiv as f64 * HDIV as f64 / 3600.0; // three record samples
         for (what, val) in [(BusWhat::Id, None), (BusWhat::Id, Some(0x4B)), (BusWhat::Data, Some(0x40)), (BusWhat::Frame, None), (BusWhat::Error, None)] {
             let mut ui = Ui::new(Source::Demo { t: 0.0 });
-            ui.m.dec_proto = Proto::Usb;
+            ui.m.dec_proto = Proto::from_key("Usb").unwrap();
             ui.set_trig_type(TrigType::Bus);
             assert_eq!((ui.m.dec_src, ui.m.dec_cs, ui.m.trig_bus, ui.m.trig_bus_val), (2, Some(3), BusWhat::Id, 5));
             assert!(ui.decode_items().contains(&Item::DecUsbSpeed) && ui.decode_items().contains(&Item::DecCs));
@@ -11169,7 +11173,7 @@ mod tests {
             (m("FlexRay"), 5e-6, "HCRC"),
             (m("Arinc429"), 100e-6, "SSM"),
             (m("Sent"), 200e-6, "STAT"),
-            (Proto::Usb, 5e-6, "ENDP"),
+            (m("Usb"), 5e-6, "ENDP"),
         ];
         for (p, tdiv, want) in cases {
             let mut ui = Ui::new(Source::Demo { t: 0.0 });

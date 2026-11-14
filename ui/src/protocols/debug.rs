@@ -89,7 +89,7 @@ mod tests {
         let n = (d.period / dt) as usize;
         let wave = |k: usize| -> Vec<f32> { (0..n).map(|i| d.lines[k].as_ref().unwrap()(i as f64 * dt) as f32).collect() };
         let (dio, clk) = (wave(0), wave(1));
-        let p = Swd.decode(&Lines { lines: [Some(&dio), Some(&clk), None, None], dt, thr: 1.65, hy: 0.1, opt: [0; OPTS] }).unwrap();
+        let p = Swd.decode(&Lines { lines: [Some(&dio), Some(&clk), None, None], dt, thr: 1.65, hy: 0.1, opt: [0; OPTS], sh: Shared::default() }).unwrap();
         assert!(p.iter().any(|x| x.kind == Kind::Data && x.value == 0x2BA0_1477), "{:?}", p);
         let ack = p.iter().find(|x| x.kind == Kind::Ack).unwrap();
         assert_eq!(Swd.text(ack, &[0; OPTS]).as_deref(), Some("ACK 1"));

@@ -751,7 +751,7 @@ mod decode_tests {
     /// The switch of the decoder names no protocol: that is the row below it.
     #[test]
     fn decoder_switch_is_not_named_after_a_protocol() {
-        assert_eq!(ui_on(Proto::I2s).item_label(Item::DecOn), "Decoder");
+        assert_eq!(ui_on(Proto::from_key("I2s").unwrap()).item_label(Item::DecOn), "Decoder");
     }
 
     /// The decoder of LA lines sits under the lanes; the analog plot stays free. On analog channels it stays in the plot.

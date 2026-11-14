@@ -170,50 +170,6 @@ fn demo_bus() -> &'static (oos_dsp::sim::Logic, oos_dsp::sim::Logic, [oos_dsp::s
     })
 }
 
-/// Demo traffic of the extended decoders: (main line, second line / clock), repeat period. 3.3 V logic unless noted.
-struct ExtDemo {
-    a: oos_dsp::sim::Logic,
-    b: Option<oos_dsp::sim::Logic>,
-    period: f64,
-}
-
-fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
-    use oos_dsp::decode_ext3::gen as g3;
-    static L: std::sync::OnceLock<Vec<(Proto, ExtDemo)>> = std::sync::OnceLock::new();
-    let all = L.get_or_init(|| {
-        let end = |l: &oos_dsp::sim::Logic| l.seg.last().map_or(1e-3, |s| s.0);
-        let mk = |a: oos_dsp::sim::Logic, b: Option<oos_dsp::sim::Logic>, idle: f64| {
-            let period = end(&a).max(b.as_ref().map_or(0.0, end)) + idle;
-            ExtDemo { a, b, period }
-        };
-        let mut v = Vec::new();
-        // USB full speed, D+ on CH3, D- on CH4: SOF; SETUP GET_DESCRIPTOR(device) to address 5, ACK; IN, the first 8
-        // bytes of the device descriptor in DATA1, ACK
-        let fs = oos_dsp::decode_ext3::USB_FULL;
-        let up = |b: Vec<u8>| g3::UsbItem::packet(&b, fs);
-        let ip = || g3::UsbItem::Idle(4.0 / fs); // inter-packet delay
-        let items = [
-            g3::UsbItem::Idle(2e-6),
-            up(g3::usb_sof(0x2a5)),
-            g3::UsbItem::Idle(3e-6),
-            up(g3::usb_token(0x2D, 5, 0)),
-            ip(),
-            up(g3::usb_data(0xC3, &[0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00])),
-            ip(),
-            up(vec![0xD2]),
-            g3::UsbItem::Idle(3e-6),
-            up(g3::usb_token(0x69, 5, 0)),
-            ip(),
-            up(g3::usb_data(0x4B, &[0x12, 0x01, 0x00, 0x02, 0xff, 0x00, 0x00, 0x40])),
-            ip(),
-            up(vec![0xD2]),
-        ];
-        let (dp, dm) = g3::usb(&items, false, 0.0, 0.0, 3.3);
-        v.push((Proto::Usb, mk(dp, Some(dm), 5e-6)));
-        v
-    });
-    all.iter().find(|(q, _)| *q == p).map(|(_, d)| d)
-}
 
 /// Demo CAN traffic (500 kbit/s, RX logic level): a standard and an extended data frame.
 fn demo_can() -> &'static oos_dsp::sim::Logic {
@@ -229,14 +185,6 @@ fn demo_can() -> &'static oos_dsp::sim::Logic {
     })
 }
 
-/// Demo I2S stream: 4 stereo frames of 16 bits at 48 kHz (WS, SD, SCK on CH1..CH3).
-const I2S_PERIOD: f64 = 4.0 / 48e3;
-/// Start of the generated stream (`i2s_logic` begins after four idle clocks of 1 / (48 kHz x 32)).
-const I2S_T0: f64 = 4.0 / (48e3 * 32.0);
-fn demo_i2s() -> &'static (oos_dsp::sim::Logic, oos_dsp::sim::Logic, oos_dsp::sim::Logic) {
-    static L: std::sync::OnceLock<(oos_dsp::sim::Logic, oos_dsp::sim::Logic, oos_dsp::sim::Logic)> = std::sync::OnceLock::new();
-    L.get_or_init(|| oos_dsp::sim::i2s_logic(&[(0x1234, -0x1234), (0x4000, -0x4000), (0x7fff, 0x0001), (0, -1)], 16, 48e3, 0.0, 3.3))
-}
 
 /// Demo LIN traffic (19200 baud, 12 V bus scaled to 3.3 V): one frame with enhanced checksum.
 fn demo_lin() -> &'static oos_dsp::sim::Logic {
@@ -252,9 +200,6 @@ fn demo_signal(cfg: DemoCfg, ch: usize, t: f64) -> f64 {
     }
     match (cfg.bus, ch) {
         (Some(Proto::Can), 2) => return demo_can().v(t.rem_euclid(500e-6)),
-        (Some(Proto::I2s), 0) => return demo_i2s().1.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
-        (Some(Proto::I2s), 1) => return demo_i2s().2.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
-        (Some(Proto::I2s), 2) => return demo_i2s().0.v(I2S_T0 + t.rem_euclid(I2S_PERIOD)),
         (Some(Proto::Lin), 2) => return demo_lin().v(t.rem_euclid(12e-3)),
         (Some(Proto::I2c), 2) => return demo_bus().0.v(t.rem_euclid(200e-6)),
         (Some(Proto::I2c), 3) => return demo_bus().1.v(t.rem_euclid(200e-6)),
@@ -267,16 +212,6 @@ fn demo_signal(cfg: DemoCfg, ch: usize, t: f64) -> f64 {
                 let s = crate::protocols::get(i).setup();
                 if let Some(f) = (0..4).find(|&r| s.src[r] == Some(ch)).and_then(|r| d.lines[r].as_ref()) {
                     return f(t.rem_euclid(d.period));
-                }
-            }
-        }
-        (Some(p), 2 | 3) => {
-            if let Some(d) = ext_demo(p) {
-                let tt = t.rem_euclid(d.period);
-                match (ch, &d.b) {
-                    (2, _) => return d.a.v(tt),
-                    (3, Some(b)) => return b.v(tt),
-                    _ => {}
                 }
             }
         }

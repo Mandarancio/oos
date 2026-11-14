@@ -21,6 +21,7 @@ mod avionics;
 mod dcc;
 mod debug;
 mod dmx512;
+mod i2s;
 #[cfg(test)]
 pub mod example;
 mod i3c;
@@ -29,6 +30,7 @@ mod onewire;
 mod qspi;
 mod serial;
 mod spdif;
+mod usb;
 mod usbpd;
 mod vehicle;
 
@@ -55,12 +57,73 @@ pub static MODULES: &[&dyn Protocol] = &[
     &vehicle::Sent,
     &avionics::Arinc429,
     &avionics::Mil1553,
+    &i2s::I2s,
+    &usb::Usb,
     #[cfg(test)]
     &example::Example,
 ];
 
 /// Option rows a module may have (bit rate, word size, variant ...).
 pub const OPTS: usize = 4;
+
+/// A row of the Decode menu several protocols share, kept in its own field of the model (`dec_baud`, `dec_bits` ...):
+/// SCPI (`:BUS<n>:RS232:BAUD` ...), the hardware protocol triggers and the setups use those fields by name, so a
+/// protocol that has such a setting names the shared row ([`Protocol::shared`]) instead of an option of its own and
+/// reads its value from [`Lines::sh`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Row {
+    Baud,
+    Bits,
+    Parity,
+    /// SPI mode 0..3
+    SpiMode,
+    CanRate,
+    /// CAN: the line is CAN-H (else CAN-L or a transceiver's RX)
+    CanH,
+    UsbSpeed,
+    CphyRate,
+    /// the event table in ASCII
+    Fmt,
+}
+
+/// The values of the shared rows.
+#[derive(Clone, Copy, Debug)]
+pub struct Shared {
+    pub baud: f64,
+    pub bits: u32,
+    pub parity: oos_dsp::decode::Parity,
+    pub spi_mode: u8,
+    pub can_rate: f64,
+    pub canh: bool,
+    pub usb_speed: oos_dsp::decode_ext3::UsbSpeed,
+    /// 0 = auto
+    pub cphy_rate: f64,
+    /// the UART line is inverted (the protocol trigger's polarity)
+    pub uart_inv: bool,
+}
+
+impl Default for Shared {
+    /// What a new model has.
+    fn default() -> Shared {
+        Shared::of(&crate::model::Model::default())
+    }
+}
+
+impl Shared {
+    pub fn of(m: &crate::model::Model) -> Shared {
+        Shared {
+            baud: crate::decode::BAUDS[m.dec_baud.min(crate::decode::BAUDS.len() - 1)],
+            bits: m.dec_bits,
+            parity: m.dec_parity,
+            spi_mode: m.dec_mode,
+            can_rate: crate::decode::CAN_RATES[m.dec_canrate.min(crate::decode::CAN_RATES.len() - 1)],
+            canh: m.dec_canh,
+            usb_speed: crate::decode::USB_SPEEDS[m.dec_uspeed.min(crate::decode::USB_SPEEDS.len() - 1)],
+            cphy_rate: m.dec_cphy_rate,
+            uart_inv: m.ser.uart_inv,
+        }
+    }
+}
 
 /// The baud rates of the Decode menu (`decode::BAUDS`), as the choices of a module's option row.
 pub const BAUD_NAMES: [&str; 10] = ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200", "460800", "921600"];
@@ -104,6 +167,8 @@ pub struct Lines<'a> {
     /// the option settings, indices into [`Opt::choices`], already in range
     #[allow(dead_code)] // interface: no module of the scope build has options yet
     pub opt: [usize; OPTS],
+    /// the shared rows ([`Protocol::shared`])
+    pub sh: Shared,
 }
 
 impl<'a> Lines<'a> {
@@ -129,13 +194,17 @@ pub struct Setup {
     pub thr: f32,
     /// a trigger that holds the demo traffic still, set when the protocol is chosen; `None` leaves the trigger alone
     pub trig: Option<DemoTrig>,
+    /// switch the channels of all its roles on when the protocol is chosen (the demo traffic is on all of them)
+    pub show: bool,
+    /// the shared Data bits row when the protocol is chosen (`None`: as it is)
+    pub bits: Option<u32>,
 }
 
 impl Default for Setup {
     /// Main line on CH3 and a second one on CH4, 3.3 V logic; the demo UART line D8 and clock D10 for the LA; the
     /// trigger as it is.
     fn default() -> Setup {
-        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65, trig: None }
+        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65, trig: None, show: false, bits: None }
     }
 }
 
@@ -273,6 +342,27 @@ pub trait Protocol: Sync {
         None
     }
 
+    /// The shared rows of the Decode menu the protocol shows, before its own options ([`Row`]).
+    fn shared(&self) -> &'static [Row] {
+        &[]
+    }
+
+    /// `bit_time` when it depends on a shared row (`Row::Baud` ...).
+    fn bit_time_sh(&self, opt: &[usize; OPTS], _sh: &Shared) -> f64 {
+        self.bit_time(opt)
+    }
+
+    /// `frame_span` when it depends on a shared row.
+    fn frame_span_sh(&self, opt: &[usize; OPTS], _sh: &Shared) -> Option<f64> {
+        self.frame_span(opt)
+    }
+
+    /// The role whose line frames start on, where the hardware trigger in front of the protocol trigger looks
+    /// (`start_edge`): the main line, or e.g. a chip select or word select.
+    fn start_role(&self) -> usize {
+        0
+    }
+
     /// For a protocol that was built in before it became a module: its option settings from a setup that kept them in
     /// the shared decoder fields (`Legacy`); `None` = the defaults.
     fn legacy(&self, _old: &Legacy) -> Option<[usize; OPTS]> {
@@ -339,7 +429,7 @@ mod tests {
             let n = (3.0 * d.period / dt) as usize;
             let waves: Vec<Option<Vec<f32>>> = d.lines.iter().map(|l| l.as_ref().map(|f| (0..n).map(|k| f((k as f64 * dt).rem_euclid(d.period)) as f32).collect())).collect();
             let s = m.setup();
-            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: s.thr, hy: 0.1, opt: opt_fit(i as u8, opt_default(i as u8)) };
+            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: s.thr, hy: 0.1, opt: opt_fit(i as u8, opt_default(i as u8)), sh: Shared::default() };
             let p = m.decode(&l).unwrap_or_else(|e| panic!("{}: {}", m.name(), e));
             assert!(!p.is_empty(), "{}: nothing decoded from its demo", m.name());
             assert!(p.iter().all(|x| x.ok), "{}: errors in its own demo: {:?}", m.name(), p.iter().find(|x| !x.ok));
