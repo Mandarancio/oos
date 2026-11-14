@@ -1,6 +1,6 @@
-# OOS: an open operating system for the DHO800/DHO900
-OOS Plus: an extension of the features (measuremnts+Offline waveform analyzer+UI enhacements+SCPI)
-OOS replaces the software of a DHO800/DHO900 oscilloscope with a Linux 6.12 kernel and a new scope application
+# OOS: an open operating system for the Rigol DHO800/DHO900
+
+OOS replaces the software of a Rigol DHO800/DHO900 oscilloscope with a Linux 6.12 kernel and a new scope application
 written in Rust. It runs from the scope's own SD card, next to the stock system, and you can switch back at any time.
 
 > **Experimental software. Read the [disclaimer](#disclaimer) before you install it.**
@@ -20,18 +20,18 @@ All pictures are screenshots of a DHO924S running OOS. More in the [gallery](#ga
 
 OOS builds on the work of these projects. Thank you to everyone behind them:
 
-- **[NovaOS](https://github.com/Bradyok/novaos-kernel-source)** for publishing the GPL source of
+- **[NovaOS](https://github.com/Bradyok/novaos-kernel-source)** by Olympian LED, Inc., for publishing the GPL source of
   its Linux port to this hardware, which showed what a kernel needs here and where OOS started. The patches, device tree
   and configuration of the OOS kernel are written anew today. Its install notes also helped with the loader's image format.
 - **[Norbert Kiszka](https://github.com/norbertkiszka)**, for the modified firmware for these scopes and the findings
   shared in public, which showed how much more this hardware can do.
-- **[Linux](https://kernel.org)**, the kernel underneath everything, and the [SoC board support](https://github.com/rockchip-linux/kernel)
-  it runs on here.
-- **[XDMA driver](https://github.com/Xilinx/dma_ip_drivers)**, which connects the SoC to the FPGA over PCIe.
+- **[Linux](https://kernel.org)**, the kernel underneath everything, and **[Rockchip](https://github.com/rockchip-linux/kernel)**
+  for the board support it runs on here.
+- **[Xilinx XDMA driver](https://github.com/Xilinx/dma_ip_drivers)**, which connects the SoC to the FPGA over PCIe.
 - **[BusyBox](https://busybox.net)**, the userland of the image.
 - **[e2fsprogs](https://e2fsprogs.sourceforge.net)** by Theodore Ts'o, which checks the data partition at every start.
 - **[wpa_supplicant](https://w1.fi/wpa_supplicant/)** by Jouni Malinen and contributors, for WLAN.
-- **[linux-firmware](https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)**, for the
+- **[linux-firmware](https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git)** and Realtek, for the
   firmware of the WLAN stick.
 - **[Rust](https://www.rust-lang.org)** and the **[libc](https://github.com/rust-lang/libc)** crate, the only dependency
   of the OOS code.
@@ -91,9 +91,9 @@ Installing OOS means that you accept in particular the following risks:
   also lift limits. Values outside the defaults are outside any rating and can make the scope unusable or damage it.
   Overclocked samples are worse and at 2 GHz wrong: see [docs/models.md](docs/models.md).
 
-OOS is an independent project. It is not affiliated with, endorsed by or supported by the maker of this instrument.
-Names are trademarks of their respective owners and are used here only to identify the hardware.
-Do not contact the instrument maker for support with OOS. The repository contains no manufacturer code. At run time OOS uses the FPGA image
+OOS is an independent project. It is not affiliated with, endorsed by or supported by RIGOL TECHNOLOGIES CO., LTD.
+Rigol and all other names are trademarks of their respective owners and are used here only to identify the hardware.
+Do not contact Rigol for support with OOS. The repository contains no Rigol code. At run time OOS uses the FPGA image
 already in the scope's flash, the calibration files on its own card and the stock software on that card, which it needs to
 read the scope's identity. It only reads them.
 
@@ -405,7 +405,7 @@ tools to use and what to watch out for: [docs/sdcard-backup.md](docs/sdcard-back
 - Python 3 and this repository (`git clone https://github.com/deckerjulian/oos.git`)
 - To build the image yourself, not with a file from a release: [Rust](https://rustup.rs) with
   `rustup target add aarch64-unknown-linux-musl`, and Docker, running. A Rust from the distribution's packages usually
-  lacks that target and `rust-lld`. Hosts: macOS on arm64, Linux on arm64 or x86-64. On Linux, run the scripts
+  lacks that target and `rust-lld`. Hosts: macOS on Apple silicon, Linux on arm64 or x86-64. On Linux, run the scripts
   as yourself, not with `sudo`: put yourself in the `docker` group (`sudo usermod -aG docker $USER`, then log in again).
   On x86-64 the kernel is cross-compiled; the image's busybox, wpa_supplicant and e2fsck come from arm64 containers,
   which need QEMU once: `docker run --privileged --rm tonistiigi/binfmt --install arm64`. The workflow
@@ -495,9 +495,9 @@ check the file's time.
 
 #### Building on Linux
 
-Steps 3 to 5 on Linux, here with apt, on an ordinary x86-64 PC as well as on arm64. On x86-64:
+Steps 3 to 5 on Linux, here with Debian or Ubuntu, on an ordinary x86-64 PC as well as on arm64. On x86-64:
 
-- the kernel and `oos-hw` are cross-compiled with the distribution's `gcc-aarch64-linux-gnu` inside the build container; you
+- the kernel and `oos-hw` are cross-compiled with Ubuntu's `gcc-aarch64-linux-gnu` inside the build container; you
   install no cross compiler yourself,
 - the Rust programs are cross-compiled by rustup's `aarch64-unknown-linux-musl` target and `rust-lld`,
 - busybox, wpa_supplicant and e2fsck come from arm64 containers, which run through QEMU (the `binfmt` line below).
@@ -556,7 +556,7 @@ sudo python3 boot/switch.py show /dev/rdiskM
 ### 7. First start
 
 1. Eject the card, put it into the scope, close the instrument, connect Ethernet and switch on.
-2. You see the stock logo from the stock loader, then the OOS start-up screen with a checklist.
+2. You see the Rigol logo from the stock loader, then the OOS start-up screen with a checklist.
 3. The scope screen appears. Each failed step is named on the screen. A missing calibration file is a warning: the
    scope then runs on defaults and is less accurate.
 
@@ -615,7 +615,7 @@ You need a FAT32 USB stick with at least 200 MiB free, and `DHO800_DHO900_OOS_In
 4. Read `oos-install.log` on the stick on a computer. It should end with `exit code 0`.
 5. Delete `oos-dry-run.txt` and run the update again. The log should end with `OOS selected for the next power-on`
    and `exit code 0`.
-6. Copy the folder `OOS-rescue` from the stick to a computer and keep it. It holds your calibration (`cal-data`), the
+6. Copy the folder `OOS-rescue` from the stick to a computer and keep it. It holds your calibration (`rigol-data`), the
    stock `recovery` and the start of the card.
 7. Switch the scope off at the mains, wait 30 seconds and switch it on. OOS starts.
 
@@ -633,7 +633,7 @@ adb root
 adb connect <scope>:55555        # adb root drops the connection
 
 # your calibration and licences, onto your computer
-adb pull /rigol/data cal-data
+adb pull /rigol/data rigol-data
 
 # the tool for the scope, not the one in fpgad/target/release
 adb push fpgad/target/aarch64-unknown-linux-musl/release/oos-update /data/local/tmp/
@@ -906,6 +906,6 @@ Third-party parts keep their own licences:
 | Mesa, libdrm, glibc, libstdc++, zlib (the GPU helper, [gpu/README.md](gpu/README.md)) | MIT, MIT, LGPL-2.1, GPL-3.0 with the runtime exception, zlib; the texts are in the image under `/etc/licenses` |
 | Roboto font | Apache-2.0, see [ui/tools/fonts/LICENSE-Roboto.txt](ui/tools/fonts/LICENSE-Roboto.txt) |
 | wpa_supplicant | BSD-3-Clause; the text is in the image at `/etc/licenses/wpa_supplicant` |
-| RTL8188EU firmware | the firmware redistribution licence, see [LICENCE.rtlwifi_firmware.txt](rootfs/initramfs/lib/firmware/rtlwifi/LICENCE.rtlwifi_firmware.txt) |
+| RTL8188EU firmware | Realtek's redistribution licence, see [LICENCE.rtlwifi_firmware.txt](rootfs/initramfs/lib/firmware/rtlwifi/LICENCE.rtlwifi_firmware.txt) |
 
 If you pass on an OOS image, the GPL requires you to provide the corresponding source, including the kernel source.

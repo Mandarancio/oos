@@ -1,6 +1,6 @@
 # OOS technical documentation
 
-How the DHO800/DHO900 hardware works and how OOS drives it. "Verified on the unit" means seen on a running scope;
+How the Rigol DHO800/DHO900 hardware works and how OOS drives it. "Verified on the unit" means seen on a running scope;
 "assumed" or "not yet verified on hardware" means it was never run.
 
 ## System

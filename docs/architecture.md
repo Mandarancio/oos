@@ -10,7 +10,7 @@ SD card (stock layout, boot.md)
  ├─ boot       stock Android kernel; magic "KRNL" -> stock boots, "OOSK" -> the loader falls back to recovery
  ├─ recovery   OOS image (kernel 6.12 + DTB + initramfs), built by boot/build-dev-image.sh
  ├─ backup     copy of the stock boot image (fallback), rollback slot, /oos data partition (update.md)
- └─ rigol      stock data incl. /rigol/data/cal_*.hex; OOS mounts it read only (oos-mount-stock)
+ └─ rigol      stock data incl. /rigol/data/cal_*.hex; OOS mounts it read only (oos-mount-rigol)
 
 initramfs /etc/rcS:  oos-oneshot (KRNL back, next power-on = stock) + start count -> oos-board early (FPGA BOOT command) ->
                      network in the background -> provisioned key-only SSH -> oos-board drivers (touch edt-ft5x06, beeper pwm-gpio) ->

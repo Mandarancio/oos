@@ -113,7 +113,7 @@ Before the 16-bit counts saturate (long / infinite persistence) the maps are hal
   coloured by its density relative to the densest pixel on a temperature scale blue -> cyan -> green -> yellow -> red
   (rare -> frequent; intensity shifts the scale). Merged rather than per channel, so overlapping traces count together;
   with infinite persistence it shows jitter and rare events. Cost per frame: one 1024-entry LUT from a
-  256-colour palette, then per pixel one add per channel and a table look-up (about 0.6 ms per frame on a host with
+  256-colour palette, then per pixel one add per channel and a table look-up (about 0.6 ms per frame on the Mac with
   4 channels, so a few ms on the A72).
 - **Storage** (toolbar Storage, or Menu > Storage): save setup to `setup<slot>.txt` (slot 1-9), recall setup from it,
   save the waveform of the record shown as CSV (`wave-NNN.csv`: `Time (s)` relative to the trigger + one `CHn (V)`

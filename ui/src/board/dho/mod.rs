@@ -15,7 +15,7 @@ use super::{Board, PanelCmd, Slow, Zone};
 use crate::model::{Coupling, GenCh, Model};
 use oos_hal::dho::{afe, afg, board, bus, panel};
 
-/// The DHO800/DHO900.
+/// The Rigol DHO800/DHO900.
 pub struct Dho;
 
 /// The generator's wave shape.
