@@ -265,8 +265,21 @@ fn log_header(h: &[u8], v: &[f32], s: &Settings, pre: usize, k: usize) {
 
 /// Decodes a read-out of the whole record into a frame.
 pub fn decode(bytes: &[u8], s: &Settings, p: &hz::Params, seq: u64) -> Frame {
+    decode_with(bytes, s, p, seq, None)
+}
+
+/// `decode`, with the offsets of the ADC cores taken off the words of every sample (not of min/max pairs: Peak, FPGA
+/// compression) when `cores` is given.
+pub fn decode_with(bytes: &[u8], s: &Settings, p: &hz::Params, seq: u64, cores: Option<&mut super::cores::Cores>) -> Frame {
     let (hdr, bytes) = if s.header && bytes.len() >= 16 { bytes.split_at(16) } else { (&bytes[..0], bytes) };
-    let w = oos_hal::dho::seq::deinterleave(bytes, s.mask);
+    let mut w = oos_hal::dho::seq::deinterleave(bytes, s.mask);
+    if let Some(cores) = cores.filter(|_| s.mode == oos_hal::dho::acq::Mode::Normal && s.compress <= 1) {
+        for (c, w) in w.iter_mut().enumerate() {
+            if !w.is_empty() {
+                cores.apply((s.mask, c, p.rate), w);
+            }
+        }
+    }
     let ch = std::array::from_fn(|c| if w[c].is_empty() { Vec::new() } else { oos_hal::dho::seq::volts(&w[c], s.ch[c].scale, s.ch[c].offset) });
     // with FPGA compression every point stands for k samples (min/max pairs, acquisition-start.md)
     let k = s.compress.max(1) as usize;
@@ -499,6 +512,8 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
         // STOP: the last batch (its read settings, parameters, newest frame in the ring) and the view last read for
         let mut last_batch: Option<(Settings, hz::Params, u32)> = None;
         let mut replayed: Option<(f64, f64)> = None;
+        // the learnt offsets of the ADC cores (`cores`)
+        let mut cores = super::cores::Cores::default();
         // the frequency counter: what runs since when, and the readings so far
         let mut counting: Option<(crate::board::CounterWant, std::time::Instant)> = None;
         let mut count_n = 0u64;
@@ -603,7 +618,8 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                                 Ok(bytes) => {
                                     let fb = seq::frame_bytes(&rb, lp);
                                     n += 1;
-                                    let f = Frame { stamp, fixed_ti: Some(ti), ..decode(&bytes[..fb.min(bytes.len())], &rb, lp, n) };
+                                    let m = out.lock().unwrap().cores.then_some(&mut cores);
+                                    let f = Frame { stamp, fixed_ti: Some(ti), ..decode_with(&bytes[..fb.min(bytes.len())], &rb, lp, n, m) };
                                     out.lock().unwrap().replay = Some(f);
                                 }
                                 Err(e) => status(format!("STOP read: {}", e)),
@@ -843,9 +859,9 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                     let fb = seq::frame_bytes(&b, &p);
                     // only the newest frames the screen takes are decoded (on the fast cores, which the frame loop
                     // needs); decode before taking the lock: the UI must not wait for 100 k-point conversions
-                    let take = match out.lock().unwrap().take {
-                        0 => count as usize,
-                        t => t.min(count as usize),
+                    let (take, match_cores) = {
+                        let g = out.lock().unwrap();
+                        (if g.take == 0 { count as usize } else { g.take.min(count as usize) }, g.cores)
                     };
                     let skip = count as usize - take;
                     n += skip as u64;
@@ -855,7 +871,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                         .skip(skip)
                         .map(|chunk| {
                             n += 1;
-                            Frame { stamp, ..decode(chunk, &b, &p, n) }
+                            Frame { stamp, ..decode_with(chunk, &b, &p, n, match_cores.then_some(&mut cores)) }
                         })
                         .collect();
                     if let (Some(w), Some(f)) = (la_words, frames.last_mut()) {

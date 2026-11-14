@@ -175,6 +175,12 @@ So 0x10d0 bit15 selects "decimate the full-rate stream by N" (N = 1, 2, 4, 8, 10
 counts in a 62.5 MHz domain.
 Examples: 1 ch 1.25 G -> 0x8001; 2 ch 625 M -> 0x8001; 1 ch 312.5 M -> 0x8004; 1 ch 12.5 M -> 0x10d0 = 0, 0x10d8 = 5.
 
+The divider keeps one sample in N and filters nothing before (measured 2026-11-14): at 31.25 MSa/s a 20.3 MHz sine of
+1 Vpp shows as a 10.95 MHz sine of the full amplitude, and 0x1004 bit 2, bit 12 and 0x10dc (0, 1, 2, 0xffff) change
+neither the samples nor their spread. A signal above half the rate folds down at full size; only Peak (min/max over
+every sample of the full rate) shows what lies between the kept samples. OOS notes it in Acquire while the rate
+is below the ADC's.
+
 ## 2. Channel set -> mask, interleave, ADC mode, stream layout
 
 ### 2.1 Mask, ratio, lanes

@@ -747,6 +747,8 @@ pub struct Model {
     pub run: RunState,
     pub status: TrigStatus,
     pub acq: AcqMode,
+    /// the offsets of the interleaved ADC cores taken off in software (`board::dho::cores`; Acquire > ADC cores)
+    pub cores: bool,
     pub avg_count: u32,
     /// segmented recording: records per RUN/SINGLE (0 = off), browsed with the history afterwards
     pub segments: usize,
@@ -1092,6 +1094,7 @@ impl Default for Model {
             run: RunState::Run,
             status: TrigStatus::Wait,
             acq: AcqMode::Normal,
+            cores: true,
             avg_count: 16,
             segments: 0,
             mdepth: 0,

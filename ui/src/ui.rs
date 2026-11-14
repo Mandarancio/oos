@@ -437,6 +437,10 @@ enum Item {
     AcqAvg,
     AcqDepth,
     AcqSeg,
+    /// software matching of the ADC cores' offsets (`board::dho::cores`)
+    AcqCores,
+    /// a note while the sample rate is below the ADC's: what lies above half of it folds down, nothing filters it
+    AcqAlias,
     MeasSrc,
     MeasAdd(Meas),
     MeasPair(usize),
@@ -3999,7 +4003,11 @@ impl Ui {
                 if self.m.acq == AcqMode::Average {
                     v.push(Item::AcqAvg);
                 }
-                v.extend([Item::AcqDepth, Item::AcqSeg, Item::Open(MenuId::Horizontal)]);
+                v.extend([Item::AcqDepth, Item::AcqSeg, Item::AcqCores]);
+                if self.alias_above().is_some() {
+                    v.push(Item::AcqAlias);
+                }
+                v.push(Item::Open(MenuId::Horizontal));
                 v
             }
             MenuId::MeasPair => (0..tools::PAIRS.len()).map(Item::MeasPair).collect(),
@@ -4225,6 +4233,14 @@ impl Ui {
         let hyst: [f32; NCH] = std::array::from_fn(|c| 0.1 * self.m.ch[c].volts_per_div());
         let inp = oos_dsp::trigger::Input { ch: refs, dt: rec.dt, hyst };
         crate::trig::find_all(&self.m, &inp).into_iter().map(|i| rec.t0 + i * rec.dt).collect()
+    }
+
+    /// Half the sample rate while it is below the ADC's and the samples are taken one in so many (Normal, Average, High
+    /// res): the hardware keeps every n-th sample and filters nothing before, so a signal above it shows at a wrong,
+    /// lower frequency. None at the full rate and in Peak, whose min/max see every sample.
+    pub fn alias_above(&self) -> Option<f64> {
+        let (sr, _) = self.m.srate_depth();
+        (self.m.acq != AcqMode::Peak && sr < self.m.max_srate() * 0.999).then_some(sr / 2.0)
     }
 
     /// The level line is on: shortly after the trigger level changed (`LEVEL_LINE_S`).
@@ -4831,6 +4847,8 @@ impl Ui {
             Item::AcqAvg => "Averages",
             Item::AcqSeg => "Segments",
             Item::AcqDepth => "Memory",
+            Item::AcqCores => "ADC cores",
+            Item::AcqAlias => "Aliasing",
             Item::MeasSrc => "Source A",
             Item::MeasSrcB => "Source B",
             Item::MeasPair(k) => tools::PAIRS[k.min(tools::PAIRS.len() - 1)].0,
@@ -5021,6 +5039,8 @@ impl Ui {
             Item::AcqAvg => format!("{}", m.avg_count),
             Item::AcqSeg => if m.segments == 0 { "Off".into() } else { m.segments.to_string() },
             Item::AcqDepth => mdepths()[m.mdepth].0.into(),
+            Item::AcqCores => if m.cores { "Matched" } else { "Raw" }.into(),
+            Item::AcqAlias => self.alias_above().map_or(String::new(), |f| format!("above {}, Peak shows it", si_short(f, "Hz"))),
             Item::MeasSrc => format!("CH{}", self.meas_src + 1),
             Item::MeasSrcB => format!("CH{}", self.meas_src_b + 1),
             Item::ChFine => onoff(m.fine_v),
@@ -5356,6 +5376,7 @@ impl Ui {
                 m.dots = !m.dots;
                 self.dirty_map = true;
             }
+            Item::AcqCores => m.cores = !m.cores,
             Item::Hdmi => {
                 let i = HDMI_MODES.iter().position(|&x| x == m.hdmi).unwrap_or(0);
                 m.hdmi = HDMI_MODES[step(i, HDMI_MODES.len(), d)];
@@ -5980,6 +6001,7 @@ impl Ui {
             Item::GridStyle => &["Full", "Light", "None"],
             Item::GridFrame | Item::TrigNoise => &["Off", "On"],
             Item::Dots | Item::ZoneOn => &["Off", "On"],
+            Item::AcqCores => &["Raw", "Matched"],
             Item::Hdmi => &["Mirror", "Waveform", "Layout"],
             Item::TextSize => return TEXT_SIZES.iter().map(|t| t.name().to_string()).collect(),
             Item::ZoneSel => &["Z1", "Z2"],
@@ -6034,7 +6056,7 @@ impl Ui {
         if let Item::RefShow(_) = it {
             return Ctl::Button;
         }
-        if matches!(it, Item::MathExprI | Item::LogInfo | Item::CalStatus | Item::NetEth | Item::NetMac | Item::NetWlan) || Self::time_text(it) || Self::remote_text(it) {
+        if matches!(it, Item::MathExprI | Item::LogInfo | Item::CalStatus | Item::NetEth | Item::NetMac | Item::NetWlan | Item::AcqAlias) || Self::time_text(it) || Self::remote_text(it) {
             return Ctl::Text;
         }
         match Self::kind(it) {

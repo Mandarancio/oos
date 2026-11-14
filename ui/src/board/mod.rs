@@ -216,6 +216,8 @@ pub struct Shared {
     /// frames the screen takes at most (`Ui::fast_max` and the record, 0 = all): the thread decodes no more of the
     /// newest frames of a batch, the older ones count as dropped without costing the fast cores their decoding
     pub take: usize,
+    /// the offsets of the ADC cores taken off the frames (`Model::cores`, `dho::cores`)
+    pub cores: bool,
     pub status: String,
     /// self-calibration: request (channels, AFE zero too), progress (done, total, text), result, cancel flag
     /// (channels, AFE zero, ADC cores)

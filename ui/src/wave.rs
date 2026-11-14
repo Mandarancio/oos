@@ -572,6 +572,7 @@ impl Source {
             // running: no STOP view any more, the thread acquires again
             (g.stop_view, g.replay) = (None, None);
             g.stamp = m.hw_stamp;
+            g.cores = m.cores;
             // SINGLE takes nothing from before the key press
             let fresh = loop {
                 match g.queue.pop_front() {
