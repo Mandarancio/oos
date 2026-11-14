@@ -34,7 +34,7 @@
 //! a long stored record is computing, and BUSY? polls without changing acquisition or statistics.
 //! :DECode:CPHY:RATE {AUTO|symbols_per_second} sets a known C-PHY symbol rate; :DECode:SRATe is an alias.
 //! :LA:STATe, :LA:DIGital<n>:DISPlay, :LA:POD<n>:THReshold, :LA:POINts?, :LA:PREamble?, :LA:DATA? (u16 LE words),
-//! :COUNter:TOTalize:CLEar, :DISPlay:VIEW <n>, :DISPlay:VIEW:COUNt 1..4,
+//! :COUNter:TOTalize:CLEar, :DISPlay:VIEW <n>, :DISPlay:VIEW:COUNt 1..4, :DISPlay:VIEW:MONitor 0..4 (HDMI Layout),
 //! :SYSTem:ERRor?, :SYSTem:STATe?, :SYSTem:GRAPhics CPU|GPU, OOS: :VIEW SCOPe|SPECtrum|EYE|POWer|BODE|MAGnetic|INVerter|DPT, :IDENtify?, :CALibrate:STARt 0..4[,ZERO] / :STATus? /
 //! :TRIGger:RS232|SPI|IIC:* (protocol trigger, scpi/ser.rs), OOS: :ACQuire:CORes[?] MATCh|RAW, :ACQuire:SEGMents[:HARDware|:INTerval], :ACQuire:AVERages:HARDware,
 //! :SYSTem:ERRor?, :SYSTem:STATe?, :SYSTem:GRAPhics CPU|GPU, :SYSTem:AOUTput TOUT|OFF (rear AUX OUT; OFF is OOS), fork: :SYSTem:DEBug:DVM? (DVM block raw), :SYSTem:DEBug:MASK? (mask unit raw), :SYSTem:DEBug:MASK:MAP[?] key=value, :SYSTem:DEBug:MASK:COLumns? a,b, :SYSTem:DEBug:ZONE? (zone unit raw), :SYSTem:DEBug:SERial? / UART? (TPU UART, SPI, I2C words), OOS: :ACQuire:AVERages:HARDware ON|OFF (FPGA average), :ACQuire:SEGMents <n>|OFF, :SEGMents:HARDware ON|OFF, :SEGMents:INTerval <s>,
@@ -1801,6 +1801,17 @@ impl Scpi {
         // Display > Views (ui/views.rs): :DISPlay:VIEW <n> shows view n, :DISPlay:VIEW:COUNt <1..4> how many there are
         if kw(n0, "DISPlay") && nodes.len() >= 2 && kw(nodes[1], "VIEW") {
             let count = nodes.len() == 3 && kw(nodes[2], "COUNt");
+            // Display > Monitor view (ui/monitor.rs): the view an HDMI monitor in Layout shows, 0 the panel's
+            if nodes.len() == 3 && kw(nodes[2], "MONitor") {
+                if query {
+                    return t(&ui.m.hdmi_view.to_string());
+                }
+                match arg.trim().parse::<usize>().ok() {
+                    Some(n) if n <= ui.m.views && (n == 0 || ui.m.views >= 2) => ui.m.hdmi_view = n,
+                    _ => self.push_err(format!("-224,\"Illegal parameter value\" {}", arg)),
+                }
+                return None;
+            }
             if nodes.len() > 3 || (nodes.len() == 3 && !count) {
                 self.push_err("-113,\"Undefined header\"".into());
                 return None;

@@ -356,6 +356,7 @@ pub fn setup_text(m: &Model) -> String {
     kv("bar", if m.bar_compact { "compact" } else { "cards" }.to_string());
     kv("draw_path", if m.draw_batch { "batch" } else { "standard" }.to_string());
     kv("hdmi", name(m.hdmi));
+    kv("hdmi_view", m.hdmi_view.to_string());
     kv("view", name(m.view));
     // Display > Views: the count and the one shown, then what each of the others keeps (ui/views.rs)
     kv("views", format!("{} {}", m.views, m.view_cur + 1));
@@ -773,6 +774,13 @@ pub fn set(m: &mut Model, k: &str, v: &str) -> Result<(), String> {
             }
         }
         "hdmi" => m.hdmi = p_enum(v, &HDMI_MODES)?,
+        "hdmi_view" => {
+            let n = v.trim().parse::<usize>().map_err(|e| e.to_string())?;
+            if n > crate::ui::VIEWS_MAX {
+                return Err(format!("{:?}: 0 (the panel's) to {}", v, crate::ui::VIEWS_MAX));
+            }
+            m.hdmi_view = n;
+        }
         "views" => {
             let n = p_list(v, 2, |x| x.parse::<usize>().map_err(|e| e.to_string()))?;
             if !(1..=crate::ui::VIEWS_MAX).contains(&n[0]) || !(1..=n[0]).contains(&n[1]) {

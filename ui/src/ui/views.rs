@@ -27,6 +27,16 @@ const SWIPE: i32 = 70;
 /// Width of a number in the top bar's view buttons.
 const NUM_W: i32 = 28;
 
+/// Whether `k` is a key of a view's model part (not `xy` and `full`).
+pub(super) fn is_view_key(k: &str) -> bool {
+    KEYS.contains(&k)
+}
+
+/// A view not set up yet: the plot alone.
+pub(super) fn plot_alone() -> String {
+    snapshot_of(&Model::default(), false, false)
+}
+
 fn known(k: &str) -> bool {
     KEYS.contains(&k) || k == "xy" || k == "full"
 }

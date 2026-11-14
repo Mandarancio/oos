@@ -35,6 +35,11 @@ New:
   simulator into reference slots; an eye diagram; Measure > Dock; a zoom-area button; Ctrl+wheel zoom; channel
   deskew; a desktop build for Windows and macOS.
 - Display > Bottom bar: Cards (default) or Compact, PR #8's bar with Menu, Sources, Overlay/Stacked, time and trigger.
+- Display > Monitor view: with HDMI Layout the monitor shows one of the views (Display > Views) instead of the
+  panel's, a second screen with its own arrangement (asked for in the forum): the panel keeps the controls, the monitor
+  shows e.g. the spectrum, the eye or four windows. Set it up by switching the panel to that view; its analyser page
+  is worked out beside the panel's. Saved with a setup (`hdmi_view`), `:DISPlay:VIEW:MONitor <n>` (0: the panel's).
+- Acquire > Draw path: Standard (the fast path) or Batch (PR #7's pipeline), to compare them; `:SYSTem:PIPeline`.
 
 Changed:
 

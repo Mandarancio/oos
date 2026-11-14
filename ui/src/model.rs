@@ -1339,6 +1339,9 @@ pub struct Model {
     /// Display > Bottom bar: the compact bar of PR #8 (Menu, Sources, the active source, Overlay/Stacked, time,
     /// trigger) instead of the cards (the default)
     pub bar_compact: bool,
+    /// Display > Monitor view: the view (1-based) an HDMI monitor in Layout shows instead of the panel's (0: the panel's;
+    /// ui/monitor.rs)
+    pub hdmi_view: usize,
     /// Display > Views: how many screen arrangements there are to switch between (1: off; ui/views.rs)
     pub views: usize,
     /// the one shown (0-based)
@@ -1772,6 +1775,7 @@ impl Default for Model {
             hdmi: HdmiMode::Waveform,
             bar_compact: false,
             draw_batch: false,
+            hdmi_view: 0,
             views: 1,
             view_cur: 0,
             view_slots: Default::default(),
