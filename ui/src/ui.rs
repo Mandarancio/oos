@@ -368,7 +368,7 @@ pub enum MenuId {
     /// list of all options of a choice (`Ui::pick` names the item); picking returns to the menu of the item
     Pick,
     /// Full legacy measurement and pair catalog, including Selected.
-    MeasLegacy,
+    MeasSelected,
 }
 
 /// Buttons of the top bar.
@@ -1079,11 +1079,10 @@ impl MeasWorker {
 
 #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 pub struct Ui {
-    meas_category: usize,
     /// Add-measurements catalog: tab, selected button, which groups are open, scroll, and the extra sources.
     cat_tab: u8,
     cat_sel: u16,
-    cat_open: [u16; 6],
+    cat_open: [u16; meascatalog::TABS.len()],
     cat_scroll: i32,
     cat_c: WaveId,
     cat_d: WaveId,
@@ -1478,10 +1477,9 @@ impl Ui {
             m.ch[0].offset = -1.25;
         }
         let mut ui = Ui {
-            meas_category: 0,
             cat_tab: 0,
             cat_sel: 1,
-            cat_open: [1; 6],
+            cat_open: [1; meascatalog::TABS.len()],
             cat_scroll: 0,
             cat_c: WaveId::Ch(2),
             cat_d: WaveId::Ch(3),
@@ -5096,7 +5094,7 @@ impl Ui {
             cv.text(&f.sb, value_x, by + y1, &value, self.wave_color(r.src));
             if st.n > 1 {
                 cv.set_clip(Rect::new(body.x + 10, by + y1 + 4, (sd_x - body.x - 15).max(1), pitch - y1 - 4));
-                cv.text(&f.s, body.x + 10, by + y2, &format!("\u{3bc} {}", r.fmt(mean)), DIM);
+                cv.text(&f.s, body.x + 10, by + y2, &format!("\u{b5} {}", r.fmt(mean)), DIM);
                 cv.no_clip();
                 cv.text(&f.s, sd_x, by + y2, &sd, DIM);
             }
@@ -5371,7 +5369,7 @@ impl Ui {
             (MenuId::Pick, Some(p)) => p.menu,
             (m, _) => m,
         };
-        if matches!(m, MenuId::MeasAdd | MenuId::MeasHold | MenuId::MeasLegacy) {
+        if matches!(m, MenuId::MeasAdd | MenuId::MeasHold | MenuId::MeasSelected) {
             MenuId::Measure
         } else if m == MenuId::SimAdvanced {
             MenuId::Sim
@@ -5783,7 +5781,7 @@ impl Ui {
             MenuId::Logger => vec![Item::LogOn, Item::LogIvl, Item::LogInfo],
             MenuId::Ref => vec![Item::RefSrc, Item::RefSave, Item::RefClear, Item::RefSel, Item::RefVpd, Item::RefOffset, Item::RefColor, Item::RefLabel, Item::RefLoad, Item::RefExport, Item::RefImport].into_iter().filter(|&it| it != Item::RefLoad || self.feature_on("load")).chain((0..NREF).map(Item::RefShow)).collect(),
             MenuId::MeasAdd => Vec::new(),
-            MenuId::MeasLegacy => self.measurement_catalog(),
+            MenuId::MeasSelected => self.measurement_catalog(),
             MenuId::Cursor if self.m.cursor == CursorMode::Off => vec![Item::CurMode],
             MenuId::Cursor if self.m.cursor == CursorMode::Xy => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurC, Item::CurD],
             MenuId::Cursor if self.m.cursor == CursorMode::Track => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurSrcB],
@@ -6667,7 +6665,7 @@ impl Ui {
             MenuId::Acquire => "Acquire".into(),
             MenuId::Measure => "Measure settings".into(),
             MenuId::MeasAdd => "Add measurement".into(),
-            MenuId::MeasLegacy => "All measurements / Selected".into(),
+            MenuId::MeasSelected => format!("Selected measurements ({})", self.measurement_count()),
             MenuId::MeasHold => "Add".into(),
             MenuId::MeasPair => format!("Pairs {} to {}", self.pair_source_caption(self.meas_src), self.pair_source_caption(self.meas_src_b)),
             MenuId::Dvm => "DVM and counter".into(),
@@ -6826,7 +6824,7 @@ impl Ui {
             Item::MathBw => "Bandwidth",
             Item::MathSel => "Channel",
             Item::MathAuto => "Auto scale",
-            Item::Open(MenuId::MeasLegacy) => "All / Selected",
+            Item::Open(MenuId::MeasSelected) => "Selected",
             Item::Open(_) => "",
             Item::ChOn(_) => "Display",
             Item::ChCoupling(_) => "Coupling",
@@ -7927,7 +7925,7 @@ impl Ui {
                             self.meas_cfg = self.meas_cfg.map(|n| n - 1);
                         }
                         self.clear_measurement_statistics();
-                        self.toast(&format!("{} {} removed", k.name(), self.wave_name(self.meas_src)));
+                        self.toast(&format!("{} {} removed", meascatalog::meas_long_name(k), self.wave_name(self.meas_src)));
                         return;
                     } else {
                         if !self.meas_make_room() { return; }
@@ -7943,7 +7941,7 @@ impl Ui {
                         }
                     }
                     self.ensure_meas_own();
-                    self.toast(&format!("{} {} added", k.name(), self.wave_name(self.meas_src)));
+                    self.toast(&format!("{} {} added", meascatalog::meas_long_name(k), self.wave_name(self.meas_src)));
                 }
                 Item::MeasPair(k) => self.meas_pair_toggle(k),
                 Item::CntClear => self.counter_clear(),
@@ -8577,7 +8575,7 @@ impl Ui {
             return None;
         }
         if self.menu == MenuId::MeasAdd { return Some(self.catalog_dialog()); }
-        if self.menu == MenuId::MeasLegacy { return Some(self.measurement_chooser_layout()); }
+        if self.menu == MenuId::MeasSelected { return Some(self.measurement_chooser_layout()); }
         if self.menu == MenuId::Main {
             return Some(self.main_layout());
         }
@@ -8837,8 +8835,6 @@ impl Ui {
                     let txt = match picked {
                         Some((o, _)) => o,
                         None if row.it == Item::QuickRun => format!("Quick \u{b7} {}", self.m.quick.short()),
-                        None if self.menu == MenuId::MeasLegacy && row.it == Item::Open(MenuId::Measure) => "Settings".into(),
-                        None if self.menu == MenuId::MeasLegacy && row.it == Item::Open(MenuId::MeasPair) => "Channel pairs".into(),
                         None if matches!(row.it, Item::MeasRemove(_)) => if let Item::MeasRemove(index) = row.it { format!("Remove {}", self.selected_measurement_label(index as usize)) } else { unreachable!() },
                         None if kind == Kind::Action => self.item_label(row.it).to_string(),
                         None => self.value(row.it),
