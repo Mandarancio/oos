@@ -375,8 +375,6 @@ pub enum MenuId {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum TopBtn {
     Menu(MenuId),
-    System,
-    Load,
     /// Back to live acquisition from a simulation or a stored waveform.
     Live,
 }
@@ -603,6 +601,7 @@ enum Item {
     RefOffset,
     RefExport,
     RefImport,
+    RefLoad,
     MaskSave,
     MaskLoad,
     MathLinA,
@@ -5143,20 +5142,17 @@ impl Ui {
     }
 
     /// Top-bar buttons, right-aligned before the network box: what is used most, and the menus without a front-panel key
-    /// (Display, Storage, System). Everything else is in the start menu.
+    /// (Display, Storage). Everything else is in the start menu: System first in its group, SIM under Analysis; Load file
+    /// is a row of the Reference menu.
     fn top_buttons(&self) -> Vec<(TopBtn, &'static str, Rect)> {
         let f = self.fonts();
         let mut all = vec![
-            (TopBtn::Load, "Load file"),
-            (TopBtn::Menu(MenuId::Sim), "SIM"),
             (TopBtn::Menu(MenuId::Measure), "Measure"),
             (TopBtn::Menu(MenuId::Cursor), "Cursor"),
             (TopBtn::Menu(MenuId::Display), "Display"),
             (TopBtn::Menu(MenuId::Storage), "Storage"),
-            (TopBtn::System, "System"),
         ];
         all.retain(|(b, _)| match b {
-            TopBtn::Load => self.feature_on("load"),
             TopBtn::Menu(m) => !self.menu_left_out(*m),
             _ => true,
         });
@@ -5170,12 +5166,9 @@ impl Ui {
             self.top_right() - 8 - width >= required
         };
         let mut padding = 28;
-        if !fits(&all, padding) {
-            if let Some((_, label)) = all.iter_mut().find(|(b, _)| *b == TopBtn::Load) { *label = "Load"; }
-        }
         if !fits(&all, padding) { padding = 20; }
         for (button, short) in [(TopBtn::Menu(MenuId::Storage), "Store"), (TopBtn::Menu(MenuId::Display), "Disp"),
-            (TopBtn::Menu(MenuId::Measure), "Meas"), (TopBtn::System, "Sys")] {
+            (TopBtn::Menu(MenuId::Measure), "Meas")] {
             if fits(&all, padding) { break; }
             if let Some((_, label)) = all.iter_mut().find(|(b, _)| *b == button) { *label = short; }
         }
@@ -5315,8 +5308,6 @@ impl Ui {
             let hl = match b {
                 TopBtn::Live => true,
                 TopBtn::Menu(m) => self.menu_open && root == m,
-                TopBtn::System => self.menu_open && root == MenuId::Utility,
-                TopBtn::Load => false,
             };
             btn(cv, r, BTN, if hl { ACCENT } else { BTN_BORDER });
             cv.text_in(&f.mb, r, 1, l, if hl { ACCENT } else { TEXT });
@@ -5789,7 +5780,7 @@ impl Ui {
             MenuId::Decode => self.decode_items(),
             MenuId::Bus => self.bus_items(),
             MenuId::Logger => vec![Item::LogOn, Item::LogIvl, Item::LogInfo],
-            MenuId::Ref => vec![Item::RefSrc, Item::RefSave, Item::RefClear, Item::RefSel, Item::RefVpd, Item::RefOffset, Item::RefColor, Item::RefLabel, Item::RefExport, Item::RefImport].into_iter().chain((0..NREF).map(Item::RefShow)).collect(),
+            MenuId::Ref => vec![Item::RefSrc, Item::RefSave, Item::RefClear, Item::RefSel, Item::RefVpd, Item::RefOffset, Item::RefColor, Item::RefLabel, Item::RefLoad, Item::RefExport, Item::RefImport].into_iter().filter(|&it| it != Item::RefLoad || self.feature_on("load")).chain((0..NREF).map(Item::RefShow)).collect(),
             MenuId::MeasAdd => Vec::new(),
             MenuId::MeasLegacy => self.measurement_catalog(),
             MenuId::Cursor if self.m.cursor == CursorMode::Off => vec![Item::CurMode],
@@ -5901,7 +5892,7 @@ impl Ui {
             ("Analysers", ana),
             ("Instruments", ins),
             ("Display", disp),
-            ("System", vec![Open(MenuId::Storage), Shot, QuickRun, LockAct, Open(MenuId::Utility), PowerAct]),
+            ("System", vec![Open(MenuId::Utility), Open(MenuId::Storage), Shot, QuickRun, LockAct, PowerAct]),
         ];
         g.retain(|x| !x.1.is_empty());
         g
@@ -6712,7 +6703,7 @@ impl Ui {
             Item::RefSave | Item::RefClear => Kind::Action,
             Item::StoreSlot | Item::MaskX | Item::MaskY => Kind::Value,
             Item::StoreSaveSetup | Item::StoreRecall | Item::StoreCsv | Item::StorePng | Item::StoreFfSave | Item::StoreFfLoad | Item::MaskCreate | Item::MaskFromRef | Item::MaskReset | Item::MaskClear => Kind::Action,
-            Item::Open(_) | Item::MathExprEdit | Item::ChBiasZero(_) | Item::RefLabel | Item::RefExport | Item::RefImport | Item::DecTable | Item::DecExport | Item::SearchTable | Item::SearchSave | Item::StoreBin | Item::MeasPair(_) | Item::CntClear | Item::MaskSave | Item::MaskLoad | Item::ChLabel(_) | Item::SrcOn | Item::WlanInfo | Item::WlanScan | Item::WlanForget | Item::HZero | Item::Trig50 | Item::MeasAdd(_) | Item::AddMeas | Item::MeasCfg(_) | Item::MeasRemove(_) | Item::MeasClear | Item::AcqSegTable | Item::ClearDisp | Item::About | Item::SysInfo | Item::Shot | Item::Stock | Item::Update | Item::UpdateRollback => Kind::Action,
+            Item::Open(_) | Item::MathExprEdit | Item::ChBiasZero(_) | Item::RefLabel | Item::RefExport | Item::RefImport | Item::RefLoad | Item::DecTable | Item::DecExport | Item::SearchTable | Item::SearchSave | Item::StoreBin | Item::MeasPair(_) | Item::CntClear | Item::MaskSave | Item::MaskLoad | Item::ChLabel(_) | Item::SrcOn | Item::WlanInfo | Item::WlanScan | Item::WlanForget | Item::HZero | Item::Trig50 | Item::MeasAdd(_) | Item::AddMeas | Item::MeasCfg(_) | Item::MeasRemove(_) | Item::MeasClear | Item::AcqSegTable | Item::ClearDisp | Item::About | Item::SysInfo | Item::Shot | Item::Stock | Item::Update | Item::UpdateRollback => Kind::Action,
             Item::PickOpt(_) | Item::ViewExit | Item::ViewSettings => Kind::Action,
             Item::SpiTimeout => Kind::Value,
             Item::RunStop | Item::SingleAct | Item::AutosetAct | Item::DefaultAct | Item::SlopeAct | Item::ForceAct => Kind::Action,
@@ -6920,6 +6911,7 @@ impl Ui {
             Item::RefOffset => "Slot offset",
             Item::RefExport => "Export slot",
             Item::RefImport => "Import slot",
+            Item::RefLoad => "Load file",
             Item::MaskSave => "Save mask",
             Item::MaskLoad => "Load mask",
             Item::MathLinA => "A",
@@ -7963,6 +7955,7 @@ impl Ui {
                 },
                 Item::RefExport => self.ref_export(),
                 Item::RefImport => self.ref_import(),
+                Item::RefLoad => self.ref_load(),
                 Item::MaskSave => self.mask_save(),
                 Item::MaskLoad => self.mask_load(),
                 Item::ChLabel(c) => self.wlan.osk = Some(wlan::Osk::for_label(c, &self.m.ch_label[c])),
@@ -8568,7 +8561,6 @@ impl Ui {
             MenuId::ViewMore => (self.scr.w, true),
             MenuId::La | MenuId::LaLines | MenuId::LaPat => self.aux_cards().0.map_or((self.scr.w / 2, false), |r| (r.x + r.w / 2, false)),
             MenuId::Afg => self.aux_cards().1.map_or((self.scr.w / 2, false), |r| (r.x + r.w / 2, false)),
-            MenuId::Utility => self.top_buttons().iter().find(|t| t.0 == TopBtn::System).map_or((self.scr.w / 2, false), |t| (t.2.x + t.2.w / 2, true)),
             // menus of front-panel keys (also opened from the start menu): centred above the cards
             m => self.top_buttons().iter().find(|t| t.0 == TopBtn::Menu(m)).map_or((self.scr.w / 2, false), |t| (t.2.x + t.2.w / 2, true)),
         }
@@ -9969,8 +9961,6 @@ impl Ui {
                     // a tap opens the measurement list; a press-and-hold opens the short menu (meas_hold_tick)
                     TopBtn::Menu(MenuId::Measure) => self.open_meas_list(),
                     TopBtn::Menu(id) => self.toggle_menu(id),
-                    TopBtn::System => self.toggle_menu(MenuId::Utility),
-                    TopBtn::Load => self.request_waveform(),
                     TopBtn::Live => self.return_to_live(),
                 };
             }

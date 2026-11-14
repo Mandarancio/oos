@@ -180,13 +180,14 @@ mod tests {
         u.select_option(Item::FeatOn(i), "Off");
         assert!(!has(&u, Item::Open(MenuId::Magnetic)));
         assert_eq!(u.m.view, AView::Scope);
-        // SIM and Load file: gone from the start menu and the top bar
+        // SIM and Load file: gone from the start menu and the Reference menu
+        assert!(u.items(MenuId::Ref).contains(&Item::RefLoad));
         for id in ["sim", "load"] {
             let i = FEATURES.iter().position(|f| f.id == id).unwrap();
             u.select_option(Item::FeatOn(i), "Off");
         }
         assert!(!has(&u, Item::Open(MenuId::Sim)));
-        assert!(u.top_buttons().iter().all(|b| !matches!(b.0, TopBtn::Load | TopBtn::Menu(MenuId::Sim))));
+        assert!(!u.items(MenuId::Ref).contains(&Item::RefLoad));
         // a decoder off: not in the picker, switched off while it decodes
         u.m.dec_on = true;
         u.m.dec_proto = Proto::Uart;

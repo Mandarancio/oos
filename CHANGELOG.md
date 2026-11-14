@@ -9,6 +9,9 @@ new from them are the Cursor B source row and the power measurement tests.
 
 New:
 
+- Top bar: Measure, Cursor, Display and Storage only. System is the first entry of its group in the start menu, SIM is
+  under Analysis there, and Load file is a row of the Reference menu (the file comes from storage on the scope, from
+  the file dialog in the desktop window).
 - Cursor > Cursor B source (Track mode): cursor B reads another channel or reference than cursor A (PR #10; SCPI
   had it already).
 - Short time bases draw every frame they can: the frames of a screen are placed on the little cores and added as

@@ -584,6 +584,15 @@ impl Ui {
         self.cancel_pointer();
     }
 
+    /// The file dialog of the desktop build for reference `slot`, without asking for the destination.
+    #[cfg(windows)]
+    pub(super) fn request_waveform_into(&mut self, slot: usize) {
+        self.request_waveform();
+        self.load_slot_ask = false;
+        self.load_destination = Some(slot);
+        self.open_wave_request = true;
+    }
+
     #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub fn waveform_destination(&self) -> Option<usize> { self.load_destination }
 
@@ -952,10 +961,6 @@ impl Ui {
             ("captures", J::Num(self.replay.captures as f64)),
             ("status", J::s(status)),
             ("gate", J::s(if self.m.meas_full_record { "full-record" } else { "screen" })),
-            ("loadRect", self.top_buttons().iter().find(|button| button.0 == TopBtn::Load).map_or(J::Null, |button| {
-                let r = button.2;
-                J::Arr(vec![J::Num(r.x as f64), J::Num(r.y as f64), J::Num(r.w as f64), J::Num(r.h as f64)])
-            })),
         ]).to_string()
     }
 

@@ -1034,6 +1034,15 @@ impl Ui {
         }
     }
 
+    /// Reference > Load file: a waveform file into the Slot row's reference. The desktop build asks with its file
+    /// dialog; the scope has none and takes the file from storage, as Import slot does.
+    pub(super) fn ref_load(&mut self) {
+        #[cfg(windows)]
+        self.request_waveform_into(self.ref_sel);
+        #[cfg(not(windows))]
+        self.ref_import();
+    }
+
     pub(super) fn ref_load_path(&mut self, path: &std::path::Path) {
         match self.ref_load_file(path) {
             Ok(()) => self.toast(&format!("R{} loaded from {}", self.ref_sel + 1, crate::store::file_name(path))),

@@ -205,18 +205,23 @@ fn acquisition_text_in_the_top_bar_opens_the_acquire_page() {
     assert!(u.menu_open && u.menu == MenuId::Acquire);
     u.tap(160, 20);
     assert!(!u.menu_open);
-    // File loading and simulation are direct actions beside the usual tools.
-    assert_eq!(u.top_buttons().iter().map(|b| b.1).collect::<Vec<_>>(), ["Load file", "SIM", "Measure", "Cursor", "Display", "Storage", "System"]);
-    let (_, _, load) = u.top_buttons().into_iter().find(|b| b.0 == TopBtn::Load).unwrap();
-    u.tap(load.x + 5, load.y + 5);
+    // The bar keeps what is used most. System and SIM are in the start menu (System first in its group), Load file is a
+    // row of the Reference menu.
+    assert_eq!(u.top_buttons().iter().map(|b| b.1).collect::<Vec<_>>(), ["Measure", "Cursor", "Display", "Storage"]);
+    let system = u.main_groups().into_iter().find(|g| g.0 == "System").unwrap().1;
+    assert_eq!(system[0], Item::Open(MenuId::Utility));
+    assert!(u.main_groups().iter().any(|g| g.1.contains(&Item::Open(MenuId::Sim))));
+    assert!(u.items(MenuId::Ref).contains(&Item::RefLoad));
+    // The destination dialog of the desktop's Ctrl+O.
+    u.request_waveform();
     assert!(u.load_slot_ask && !u.open_wave_request && !u.menu_open);
     u.dismiss_context();
     assert!(!u.load_slot_ask && !u.open_wave_request);
     assert!(u.refs.iter().all(Option::is_none));
-    u.tap(load.x + 5, load.y + 5);
+    u.request_waveform();
     u.tap(8, 8);
     assert!(!u.load_slot_ask && !u.open_wave_request, "an outside tap cancels without loading");
-    u.tap(load.x + 5, load.y + 5);
+    u.request_waveform();
     let r3 = Ui::load_slot_button(2);
     u.tap(r3.x + 4, r3.y + 4);
     assert!(!u.load_slot_ask && u.open_wave_request);
@@ -227,6 +232,27 @@ fn acquisition_text_in_the_top_bar_opens_the_acquire_page() {
     let (_, _, r) = u.top_buttons().into_iter().find(|b| b.0 == TopBtn::Menu(MenuId::Measure)).unwrap();
     u.tap(r.x + 5, r.y + 5);
     assert!(u.menu_open && u.menu == MenuId::MeasAdd);
+}
+
+/// Reference > Load file on the scope: the file comes from storage and lands in the Slot row's reference.
+#[cfg(not(windows))]
+#[test]
+fn load_file_in_the_reference_menu_takes_a_file_from_storage() {
+    let dir = std::env::temp_dir().join(format!("oos-refload-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut u = with_two_channels();
+    u.store_dir = dir.clone();
+    u.activate(Item::RefLoad);
+    assert!(u.refs.iter().all(Option::is_none), "nothing in storage, nothing loaded");
+    let rec = u.last[0].as_ref().unwrap().clone();
+    std::fs::write(dir.join("capture.bin"), crate::store::wave_bin(&rec, &u.m)).unwrap();
+    u.ref_sel = 2;
+    u.activate(Item::RefLoad);
+    let r = u.refs[2].as_ref().expect("R3");
+    assert_eq!(*r.v, rec.ch[0]);
+    assert!(!u.load_slot_ask && !u.open_wave_request, "no file dialog on the scope");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
