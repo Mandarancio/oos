@@ -22,6 +22,7 @@ mod dmx512;
 #[cfg(test)]
 pub mod example;
 mod linecode;
+mod onewire;
 mod serial;
 mod spdif;
 mod usbpd;
@@ -38,6 +39,8 @@ pub static MODULES: &[&dyn Protocol] = &[
     &serial::Uart9,
     &serial::ModbusRtu,
     &serial::ModbusAscii,
+    &onewire::OneWire,
+    &onewire::Ds2482,
     #[cfg(test)]
     &example::Example,
 ];

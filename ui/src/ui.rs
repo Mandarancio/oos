@@ -6242,7 +6242,7 @@ impl Ui {
         m.dec_proto = p;
         // LA input: the lines of the demo traffic (D8 UART, D9 CS, D10 clock, D11 MOSI, D12 SCL, D13 SDA)
         m.dec_la = match p {
-            Proto::I2c | Proto::I3c | Proto::Ds2482 => [Some(13), Some(12), None, None],
+            Proto::I2c | Proto::I3c => [Some(13), Some(12), None, None],
             Proto::Spi => [Some(11), Some(10), Some(9), None],
             Proto::Parallel => [Some(0), None, None, None],
             Proto::Module(i) => crate::protocols::get(i).setup().la,
@@ -6285,7 +6285,7 @@ impl Ui {
             Proto::Jtag | Proto::Qspi => {
                 (m.dec_src, m.dec_src2, m.dec_cs, m.dec_src4) = (0, 1, Some(2), Some(3));
             }
-            Proto::Ds2482 | Proto::I3c | Proto::Swd => {
+            Proto::I3c | Proto::Swd => {
                 (m.dec_src, m.dec_src2) = (2, 3);
             }
             // demo: one ARINC 429 line against ground (+-5 V), HI / LO at +-2.5 V
@@ -11211,7 +11211,7 @@ mod tests {
             (m("Dmx512"), 100e-6, "SC"),
             (m("ModbusRtu"), 1e-3, "FUNC"),
             (m("Uart9"), 1e-3, "Addr"),
-            (Proto::OneWire, 200e-6, "ROM"),
+            (m("OneWire"), 200e-6, "ROM"),
             (m("UsbPd"), 100e-6, "HDR"),
             (Proto::Swd, 20e-6, "REQ"),
             (m("Spdif"), 20e-6, "Sample"),

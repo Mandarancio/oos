@@ -191,8 +191,6 @@ fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
         let mut v = Vec::new();
         let fd = g1::FdFrame { id: 0x123, ext: false, fd: true, brs: true, esi: false, data: (1..=12).collect() };
         v.push((Proto::CanFd, mk(g1::can_fd_logic(&[fd], 500e3, 2e6, 0.0, 3.3), None, 40e-6)));
-        let ow = [g1::Ow::Reset { presence: true }, g1::Ow::Write(0x33), g1::Ow::Read(0x28), g1::Ow::Read(0xFF), g1::Ow::Read(0x4C), g1::Ow::Read(0x3D)];
-        v.push((Proto::OneWire, mk(g1::onewire_logic(&ow, 0.0, 3.3), None, 200e-6)));
         let ops = [g2::SwdOp::LineReset, g2::SwdOp::JtagToSwd, g2::SwdOp::LineReset, g2::SwdOp::Idle(2), g2::SwdOp::Xfer { ap: false, read: true, a: 0, ack: 1, data: 0x2BA0_1477, bad_parity: false }, g2::SwdOp::Idle(4)];
         let (clk, dio) = g2::swd(&ops, 1e6, 0.0, 3.3);
         v.push((Proto::Swd, mk(dio, Some(clk), 20e-6)));

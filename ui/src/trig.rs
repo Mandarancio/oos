@@ -82,8 +82,6 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         }
         Proto::CanFd => x1::can_fd(line, dt, can_rate, crate::decode::FD_RATES[m.dec_fdrate], thr, hy, m.dec_canh),
         Proto::FlexRay => x1::flexray(line, dt, 10e6, thr, hy, false),
-        Proto::OneWire => x1::onewire(get(m.dec_src)?, dt, thr, hy, false),
-        Proto::Ds2482 => x1::ds2482(&i2c(get(m.dec_src)?, get(m.dec_src2)?, thr, hy)),
         Proto::Swd => x2::swd(get(m.dec_src2)?, get(m.dec_src)?, thr, hy),
         Proto::Jtag => {
             let tdi = opt(m.dec_cs)?.ok_or("TDI source missing")?;

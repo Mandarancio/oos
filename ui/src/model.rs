@@ -437,8 +437,6 @@ pub enum Proto {
     Parallel,
     CanFd,
     FlexRay,
-    OneWire,
-    Ds2482,
     Swd,
     Jtag,
     Qspi,
@@ -454,9 +452,9 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 20] = [
+pub const BUILTIN_PROTOS: [Proto; 18] = [
     Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel, Proto::CanFd,
-    Proto::FlexRay, Proto::OneWire, Proto::Ds2482, Proto::Swd,
+    Proto::FlexRay, Proto::Swd,
     Proto::Jtag, Proto::Qspi, Proto::I3c, Proto::Arinc429, Proto::Sent, Proto::Usb,
     Proto::Cphy,
 ];
@@ -499,8 +497,6 @@ impl Proto {
             Proto::Parallel => "Parallel",
             Proto::CanFd => "CAN-FD",
             Proto::FlexRay => "FlexRay",
-            Proto::OneWire => "1-Wire",
-            Proto::Ds2482 => "DS2482",
             Proto::Swd => "SWD",
             Proto::Jtag => "JTAG",
             Proto::Qspi => "Quad-SPI",
@@ -516,7 +512,7 @@ impl Proto {
         match self {
             Proto::Module(i) => crate::protocols::get(i).roles(),
             Proto::Cphy => [Some("A"), Some("B"), Some("C"), None],
-            Proto::I2c | Proto::I3c | Proto::Ds2482 => [Some("SDA"), Some("SCL"), None, None],
+            Proto::I2c | Proto::I3c => [Some("SDA"), Some("SCL"), None, None],
             Proto::Spi => [Some("MOSI"), Some("Clock"), Some("CS"), None],
             Proto::I2s => [Some("SD"), Some("SCK"), Some("WS"), None],
             Proto::Parallel => [Some("D0"), None, Some("Clock"), None],
@@ -2201,13 +2197,12 @@ impl Model {
         match self.dec_proto {
             Proto::Uart | Proto::Lin => 1.0 / crate::decode::BAUDS[self.dec_baud],
             Proto::Can | Proto::CanFd => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
-            Proto::I2c | Proto::Ds2482 => 2.5e-6,
+            Proto::I2c => 2.5e-6,
             Proto::I3c => 0.1e-6,
             Proto::Spi | Proto::Qspi | Proto::Swd | Proto::Jtag | Proto::Parallel => 0.5e-6,
             Proto::I2s => 0.6e-6,
             Proto::Mil1553 => 1e-6,
             Proto::FlexRay => 0.1e-6,
-            Proto::OneWire => 15e-6,
             Proto::Module(i) => crate::protocols::get(i).bit_time(&self.dec_opts()),
             // auto: high speed (the finer sampling)
             Proto::Arinc429 => {
