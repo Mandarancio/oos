@@ -1333,6 +1333,9 @@ pub struct Model {
     /// what an HDMI monitor shows (Display > HDMI). Mirror copies the panel. Waveform and Layout put the plot on the
     /// display and leave the panel for controls; the density changes that plot, the panel keeps its bars.
     pub hdmi: HdmiMode,
+    /// Display > Bottom bar: the compact bar of PR #8 (Menu, Sources, the active source, Overlay/Stacked, time,
+    /// trigger) instead of the cards (the default)
+    pub bar_compact: bool,
     /// Display > Views: how many screen arrangements there are to switch between (1: off; ui/views.rs)
     pub views: usize,
     /// the one shown (0-based)
@@ -1764,6 +1767,7 @@ impl Default for Model {
             // samples as dots by default
             dots: true,
             hdmi: HdmiMode::Waveform,
+            bar_compact: false,
             views: 1,
             view_cur: 0,
             view_slots: Default::default(),

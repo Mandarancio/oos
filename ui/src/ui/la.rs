@@ -794,6 +794,9 @@ mod decode_tests {
         // demo signals: no probe to ask for
         assert!(ui.la_probe_ok());
         ui.la_probe_set(Some(false));
+        // through the compact bar's Sources (Display > Bottom bar = Compact)
+        ui.m.bar_compact = true;
+        ui.relayout();
         ui.tap(80, BOTTOM.y + 15);
         ui.tap(110, BOTTOM.y - 49); // Sources > Logic analyser.
         assert!(!ui.m.la.on && !ui.menu_open);

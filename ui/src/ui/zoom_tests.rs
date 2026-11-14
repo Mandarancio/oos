@@ -9,6 +9,8 @@ fn mixed() -> Ui {
     ui.m.tfine = 1.0;
     ui.m.meas.clear();
     ui.m.meas2.clear();
+    // the workspace gestures of the compact bottom bar (Display > Bottom bar = Compact)
+    ui.m.bar_compact = true;
     ui.refs[0] = Some(RefWave { src: 0, color: 1, label: "Known record".into(),
         t0: -40e-6, dt: 20e-9, v: ((0..4000).map(|k| (k as f32 * 0.1).sin() * 0.4).collect::<Vec<_>>()).into(),
         vpd: 0.2, offset: 0.1, on: true });
@@ -31,6 +33,9 @@ fn control(ui: &mut Ui, name: &str) {
     tap(ui,rect);
 }
 fn stacked(ui: &mut Ui) {
+    // Overlay/Stacked sit in the compact bottom bar (Display > Bottom bar = Compact)
+    ui.m.bar_compact = true;
+    ui.relayout();
     let time = ui.card_layout().time;
     tap(ui,Rect::new(time.x-62,BOTTOM.y+3,58,30));
     assert!(ui.stacked());

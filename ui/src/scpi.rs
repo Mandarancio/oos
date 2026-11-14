@@ -4628,10 +4628,10 @@ mod tests {
     fn compatibility_raw_tcp_pending_opc_does_not_block_other_clients() {
         let (mut s,mut ui,cv)=reference_session();line(&mut s,&mut ui,&cv,":TRIG:EDGE:LEV 10");
         let mut waiting=TcpStream::connect(("127.0.0.1",s.port().unwrap())).unwrap();waiting.set_nonblocking(true).unwrap();
-        waiting.write_all(b":SINGLE;*OPC?;:TRIG:STAT?\n").unwrap();s.poll(&mut ui,&cv);ui.step(0.2);s.poll(&mut ui,&cv);
+        waiting.write_all(b":SINGLE;*OPC?;:TRIG:STAT?\n").unwrap();for _ in 0..25 { s.poll(&mut ui,&cv); std::thread::sleep(std::time::Duration::from_millis(2)); }ui.step(0.2);for _ in 0..25 { s.poll(&mut ui,&cv); std::thread::sleep(std::time::Duration::from_millis(2)); }
         let mut bytes=[0;128];assert_eq!(waiting.read(&mut bytes).unwrap_err().kind(),ErrorKind::WouldBlock);
         let mut control=TcpStream::connect(("127.0.0.1",s.port().unwrap())).unwrap();control.write_all(b":TRIG:FORC\n").unwrap();
-        s.poll(&mut ui,&cv);ui.step(0.2);s.poll(&mut ui,&cv);let n=waiting.read(&mut bytes).unwrap();
+        for _ in 0..25 { s.poll(&mut ui,&cv); std::thread::sleep(std::time::Duration::from_millis(2)); }ui.step(0.2);for _ in 0..25 { s.poll(&mut ui,&cv); std::thread::sleep(std::time::Duration::from_millis(2)); }let n=waiting.read(&mut bytes).unwrap();
         assert_eq!(&bytes[..n],b"1;STOP\n");assert_eq!(captures(&ui),1.0);
     }
 
@@ -4656,12 +4656,12 @@ mod tests {
         let mut server=crate::hislip::Server::open(0);
         let mut client=TcpStream::connect(("127.0.0.1",server.port().unwrap())).unwrap();client.set_nonblocking(true).unwrap();
         client.write_all(&crate::hislip::encode(0,0,0x0100_0000,b"hislip0")).unwrap();
-        server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p));
+        for _ in 0..25 { server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
         let mut bytes=[0;1024];let n=client.read(&mut bytes).unwrap();let init=crate::hislip::take_message(&mut bytes[..n].to_vec()).unwrap().unwrap();assert_eq!(init.typ,1);
         client.write_all(&crate::hislip::encode(7,0,77,b":SINGLE;:TRIG:STAT?;*OPC?\n:TRIG:STAT?\n")).unwrap();
-        server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p));ui.step(0.2);server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p));
+        for _ in 0..25 { server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }ui.step(0.2);for _ in 0..25 { server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
         assert_eq!(client.read(&mut bytes).unwrap_err().kind(),ErrorKind::WouldBlock);
-        line(&mut s,&mut ui,&cv,":TRIG:FORC");ui.step(0.2);server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p));
+        line(&mut s,&mut ui,&cv,":TRIG:FORC");ui.step(0.2);for _ in 0..25 { server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
         let n=client.read(&mut bytes).unwrap();let response=crate::hislip::take_message(&mut bytes[..n].to_vec()).unwrap().unwrap();
         assert_eq!((response.typ,response.param),(7,77));assert_eq!(response.data,b"WAIT;1\nSTOP\n");
     }
@@ -4720,22 +4720,22 @@ mod tests {
             let (mut scpi,mut ui,cv)=reference_session();line(&mut scpi,&mut ui,&cv,":TRIG:EDGE:LEV 10");
             let mut server=crate::hislip::Server::open(0);let port=server.port().unwrap();
             let mut sync=TcpStream::connect(("127.0.0.1",port)).unwrap();sync.set_nonblocking(true).unwrap();
-            sync.write_all(&crate::hislip::encode(0,0,0x0100_0000,b"hislip0")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+            sync.write_all(&crate::hislip::encode(0,0,0x0100_0000,b"hislip0")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
             let session=read_message(&mut sync).param as u16;
-            sync.write_all(&crate::hislip::encode(7,0,42,b":SINGLE;*OPC?;:RUN\n")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+            sync.write_all(&crate::hislip::encode(7,0,42,b":SINGLE;*OPC?;:RUN\n")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
             if asynchronous {
                 let mut control=TcpStream::connect(("127.0.0.1",port)).unwrap();control.set_nonblocking(true).unwrap();
-                control.write_all(&crate::hislip::encode(17,0,session as u32,b"")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+                control.write_all(&crate::hislip::encode(17,0,session as u32,b"")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
                 assert_eq!(read_message(&mut control).typ,18);
-                control.write_all(&crate::hislip::encode(19,0,0,b"")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+                control.write_all(&crate::hislip::encode(19,0,0,b"")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
                 assert_eq!(read_message(&mut control).typ,23);
             } else {
-                sync.write_all(&crate::hislip::encode(8,0,0,b"")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+                sync.write_all(&crate::hislip::encode(8,0,0,b"")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
                 assert_eq!(read_message(&mut sync).typ,9);
             }
-            line(&mut scpi,&mut ui,&cv,":TRIG:EDGE:LEV 0");ui.step(0.2);server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+            line(&mut scpi,&mut ui,&cv,":TRIG:EDGE:LEV 0");ui.step(0.2);for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
             assert_eq!(ui.m.run,RunState::Stop);let mut b=[0;128];assert_eq!(sync.read(&mut b).unwrap_err().kind(),ErrorKind::WouldBlock);
-            sync.write_all(&crate::hislip::encode(7,0,44,b"*IDN?\n")).unwrap();server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p));
+            sync.write_all(&crate::hislip::encode(7,0,44,b"*IDN?\n")).unwrap();for _ in 0..25 { server.poll_async(&mut|p|scpi.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
             assert!(read_message(&mut sync).data.starts_with(b"OOS,"));
         }
     }
@@ -5155,13 +5155,13 @@ mod tests {
         let mut client = TcpStream::connect(("127.0.0.1", s.port().unwrap())).unwrap();
         client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         client.write_all(b"*IDN?;*OPC?\n").unwrap();
-        for _ in 0..3 { s.poll(&mut ui, &cv); }
+        for _ in 0..50 { s.poll(&mut ui, &cv); std::thread::sleep(Duration::from_millis(2)); }
         let mut response = std::io::BufReader::new(client.try_clone().unwrap());
         let mut first = String::new();
         std::io::BufRead::read_line(&mut response, &mut first).unwrap();
         assert!(first.starts_with("OOS,") && first.ends_with(";1\n"), "{first:?}");
         client.write_all(b"*OPC?\n").unwrap();
-        for _ in 0..3 { s.poll(&mut ui, &cv); }
+        for _ in 0..50 { s.poll(&mut ui, &cv); std::thread::sleep(Duration::from_millis(2)); }
         let mut second = String::new();
         std::io::BufRead::read_line(&mut response, &mut second).unwrap();
         assert_eq!(second, "1\n", "compound replies must not leave a stray response for the next query");
@@ -5412,11 +5412,11 @@ mod tests {
         let mut client = TcpStream::connect(("127.0.0.1", scpi.port().unwrap())).unwrap();
         client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
         client.write_all(b":MEAS:STRIP?\n").unwrap();
-        scpi.poll(&mut ui, &canvas);
+        for _ in 0..50 { scpi.poll(&mut ui, &canvas); std::thread::sleep(Duration::from_millis(2)); }
         let mut byte = [0]; client.read_exact(&mut byte).unwrap();
         assert_eq!(&byte, b"\n");
         client.write_all(b":MEAS:STRIP?;*OPC?\n*ESR?\n").unwrap();
-        scpi.poll(&mut ui, &canvas);
+        for _ in 0..50 { scpi.poll(&mut ui, &canvas); std::thread::sleep(Duration::from_millis(2)); }
         let mut reply = [0; 5]; client.read_exact(&mut reply).unwrap();
         assert_eq!(&reply, b";1\n0\n");
         assert_eq!(scpi.exec_message_checked(&mut ui, &canvas, ":MEAS:STRIP?"), Ok((Vec::new(), true)));

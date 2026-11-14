@@ -275,16 +275,42 @@ fn system_info_has_the_rates() {
     assert!(u.sysinfo_rows().iter().flatten().any(|r| matches!(r, super::sysinfo::Row::Kv(k, ..) if k.contains("Waveforms"))));
 }
 
-/// Compact source controls fit every mix; auxiliary tools remain in Sources.
+/// The cards fit every mix of channels, LA and generator; the compact bar's source controls too, auxiliary tools
+/// there remain in Sources.
 #[test]
 fn bottom_row_fits_in_every_mix() {
     for scr in SCREENS {
         bottom_row_fits_on(scr);
+        bottom_row_fits_on_compact(scr);
     }
 }
 
 fn bottom_row_fits_on(scr: Screen) {
     let mut u = demo_on(scr);
+    for bits in 0..64 {
+        for c in 0..NCH {
+            u.m.ch[c].on = bits >> c & 1 == 1;
+        }
+        (u.m.la.on, u.m.afg_on) = (bits & 16 != 0, bits & 32 != 0);
+        let c = u.card_layout();
+        let (la, gen) = (c.la.expect("the DHO924S has an LA port"), c.gen.expect("and a generator"));
+        let mut all: Vec<Rect> = c.ch.to_vec();
+        all.extend([la, gen, c.time, c.trig]);
+        for (i, a) in all.iter().enumerate() {
+            assert!(a.w >= 54 && a.right() <= u.scr.w - 6, "{:?} mix {:b}: {:?}", scr, bits, a);
+            assert!(!all[i + 1..].iter().any(|b| overlaps(*a, *b)), "mix {:b}: {:?}", bits, a);
+        }
+        assert!(c.trig.w >= 222 && c.time.w >= 130, "mix {:b}", bits);
+        // a channel that is on keeps room for its text
+        for k in 0..NCH {
+            assert!(!u.m.ch[k].on || c.ch[k].w >= 90, "mix {:b}: CH{} {}", bits, k + 1, c.ch[k].w);
+        }
+    }
+}
+
+fn bottom_row_fits_on_compact(scr: Screen) {
+    let mut u = demo_on(scr);
+    u.m.bar_compact = true;
     for bits in 0..64 {
         for c in 0..NCH {
             u.m.ch[c].on = bits >> c & 1 == 1;
@@ -405,6 +431,7 @@ fn screen_in_order_on(scr: Screen) {
 #[test]
 fn sources_menu_opens_la_and_generator_without_starting_generator_output() {
     let mut u = Ui::new(Source::Demo { t: 0.0 });
+    u.m.bar_compact = true;
     u.tap(80, BOTTOM.y + 15);
     u.tap(110, BOTTOM.y - 49); // Sources: Logic analyser, immediately above Generator.
     assert!(u.m.la.on && u.menu_open && u.menu == MenuId::La);
@@ -1897,7 +1924,7 @@ fn a_loaded_ref_feeds_measure_power_bode_spectrum_and_eye() {
     u.m.ch[0].bw = BW_20M;
     u.m.ch[0].coupling = Coupling::Ac;
     u.m.meas = vec![(Meas::Vpp, WaveId::Ref(0))];
-    let row = u.meas_rows().into_iter().find(|r| r.name == "Vpp").expect("pk-pk");
+    let row = u.meas_rows().into_iter().find(|r| r.name == Meas::Vpp.name()).expect("pk-pk");
     let direct = oos_dsp::measure::analyze_min(&sine, dt, 0.4 * 0.2);
     assert!((row.v - direct.get(Meas::Vpp)).abs() < 1e-6, "{} vs {}", row.v, direct.get(Meas::Vpp));
     let mut filtered = sine.clone();

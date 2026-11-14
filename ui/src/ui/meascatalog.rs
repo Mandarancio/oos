@@ -457,7 +457,7 @@ impl Ui {
     }
 
     fn catalog_lay(&self) -> Lay {
-        let r = Rect::new(8, TOP.h + 4, W - 16, BOTTOM.y - TOP.h - 8);
+        let r = Rect::new(8, TOP.h + 4, W - 16, self.frame().bottom.y - TOP.h - 8);
         let close = Rect::new(r.x + r.w - 56, r.y + 6, 44, DLG_CTRL);
         let settings = Rect::new(close.x - 108, r.y + 6, 100, 40);
         let all = Rect::new(r.x + 250, r.y + 6, 164, 40);
@@ -1069,7 +1069,7 @@ mod tests {
         ui.catalog_add(Cat::Amplitude);
         ui.catalog_add(Cat::LowTime);
         let rows = ready_rows(&mut ui);
-        let amp = rows.iter().find(|r| r.name == "Vamp").expect("amplitude");
+        let amp = rows.iter().find(|r| r.name == Meas::Vamp.name()).expect("amplitude");
         assert!((amp.v - 2.0).abs() < 0.15, "amplitude {}", amp.v);
         assert!(rows.iter().any(|r| r.name == "Low time" && r.v.is_finite()), "low time");
         ui.catalog_add(Cat::DataRate);

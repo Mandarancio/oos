@@ -618,6 +618,8 @@ enum Item {
     WinLa,
     ClearDisp,
     Dots,
+    /// Display > Bottom bar: Cards or Compact (`Model::bar_compact`)
+    BottomBar,
     Hdmi,
     TextSize,
     ZInput,
@@ -1732,7 +1734,10 @@ impl Ui {
     /// Top bar, waveform area and bottom bar of the screen.
     pub fn frame(&self) -> Frame {
         let mut f = Frame::of(self.scr);
-        // the compact bottom bar: the body takes what the cards would have had
+        if !self.m.bar_compact {
+            return f;
+        }
+        // the compact bottom bar (PR #8, Display > Bottom bar = Compact): the body takes what the cards would have had
         let grow = f.bottom.h - BOTTOM_H;
         f.body.h += grow;
         f.bottom = Rect::new(f.bottom.x, f.bottom.y + grow, f.bottom.w, BOTTOM_H);
@@ -5347,7 +5352,63 @@ impl Ui {
     /// All bottom cards. LA and generator sit behind the channels, wide like them when they are on and the channels keep
     /// room for their text, else narrow.
     fn card_layout(&self) -> Cards {
-        self.compact_cards()
+        if self.m.bar_compact {
+            self.compact_cards()
+        } else if self.record_mode() {
+            // a stored record or the simulator on the screen (Offline, Take over, SIM): no analog channel, LA or
+            // generator cards, the time base and trigger stay (as the compact bar has it, PR #8)
+            let c = self.card_layout_cards();
+            Cards { ch: c.ch.map(|r| Rect::new(r.x, r.y, 0, r.h)), la: None, gen: None, time: c.time, trig: c.trig }
+        } else {
+            self.card_layout_cards()
+        }
+    }
+
+    /// The cards of the card bar (Display > Bottom bar = Cards, the default).
+    fn card_layout_cards(&self) -> Cards {
+        let row = self.frame().cards;
+        let (y, h) = (row.y, row.h);
+        // 2-channel models: no cards for CH3/CH4 (zero width, never drawn or hit)
+        let n = n_ch();
+        let n_on = (0..n).filter(|&c| self.m.ch[c].on).count() as i32;
+        let n_off = n as i32 - n_on;
+        let caps = &oos_hal::model::platform().caps;
+        let aux = [(caps.la, self.m.la.on), (caps.has_gen(), self.m.afg_on)];
+        let start = row.x;
+        let room = |wide: bool| {
+            let a: i32 = aux.iter().filter(|a| a.0).map(|a| if a.1 && wide { AUX_WIDE } else { AUX_NARROW } + 7).sum();
+            row.right() - start - n_off * (56 + 7) - n_on * 7 - a - (130 + 7) - 222
+        };
+        let wide = n_on == 0 || room(true) / n_on.max(1) >= CH_MIN;
+        let won = if n_on > 0 { (room(wide) / n_on).min(213) } else { 0 };
+        let mut x = start;
+        let mut ch = [Rect::new(0, 0, 0, 0); NCH];
+        for (c, r) in ch.iter_mut().enumerate() {
+            if c >= n {
+                *r = Rect::new(x, y, 0, h);
+                continue;
+            }
+            let w = if self.m.ch[c].on { won } else { 56 };
+            *r = Rect::new(x, y, w, h);
+            x += w + 7;
+        }
+        let mut next = |(has, on): (bool, bool)| {
+            has.then(|| {
+                let w = if on && wide { AUX_WIDE } else { AUX_NARROW };
+                let r = Rect::new(x, y, w, h);
+                x += w + 7;
+                r
+            })
+        };
+        let (la, gen) = (next(aux[0]), next(aux[1]));
+        let rest = row.right() - x - 7;
+        let tw = ((rest as f32 * 0.42) as i32).min(rest - 222).max(130);
+        let tw = tw.min(TIME_CARD_MAX);
+        let trw = (rest - tw).min(TRIG_CARD_MAX);
+        // a wide screen: TIME and trigger keep their largest size and move to the right edge, the room stays between
+        // the channels and them (as in the top bar)
+        let x = row.right() - trw - 7 - tw;
+        Cards { ch, la, gen, time: Rect::new(x, y, tw, h), trig: Rect::new(x + tw + 7, y, trw, h) }
     }
 
     /// The big digits of a card while `s` fits `room`, else the next size: nothing is cut off with every card on.
@@ -5411,7 +5472,128 @@ impl Ui {
     }
 
     fn draw_bottom(&self, cv: &mut Canvas) {
-        self.draw_workspace_footer(cv);
+        if self.m.bar_compact {
+            self.draw_workspace_footer(cv);
+        } else {
+            self.draw_bottom_cards(cv);
+        }
+    }
+
+    /// The card bar: Menu, a card per channel, LA, generator, time base and trigger.
+    fn draw_bottom_cards(&self, cv: &mut Canvas) {
+        let f = self.fonts();
+        let (yn, yb, ys) = self.lay().card;
+        // a line that would run out of a narrow card takes the normal size
+        let small = |s: &str, room: i32| fit_font(&[&f.s, &Fonts::get(0).s], room, s);
+        cv.fill(self.frame().bottom, BG);
+        let root = if self.menu_open { Some(self.menu_root()) } else { None };
+        // start menu button: three bars and "Menu"; amber "Locked" while touch is locked (a tap unlocks)
+        let r = self.menu_btn();
+        let (hl, lock) = (root == Some(MenuId::Main), self.m.touch_lock);
+        cv.round(r, 7, if hl { ACCENT } else if lock { AMBER } else { CARD_BORDER }, 255);
+        cv.round(r.inset(2), 5, BAR, 255);
+        let col = if hl { ACCENT } else if lock { AMBER } else { TEXT };
+        for k in 0..3 {
+            cv.fill(Rect::new(r.x + r.w / 2 - 11, r.y + 16 + k * 7, 22, 3), col);
+        }
+        cv.text_in(&f.sb, Rect::new(r.x, r.y + 42, r.w, 16), 1, if lock { "Locked" } else { "Menu" }, col);
+        let (chs, tr, trg) = self.cards();
+        let sub_font = self.card_sub_font();
+        for (c, &r) in chs.iter().enumerate() {
+            if r.w == 0 {
+                continue;
+            }
+            let ch = &self.m.ch[c];
+            let col = CH_COLORS[c];
+            let sel = root == Some(MenuId::Channel(c));
+            let border = if ch.on && (self.m.active == c || sel) { col } else { CARD_BORDER };
+            cv.round(r, 7, border, 255);
+            cv.round(r.inset(2), 5, BAR, 255);
+            // narrow cards: the text stays inside
+            cv.set_clip(r.inset(3));
+            let name = self.ch_name(c);
+            if ch.on {
+                cv.fill(Rect::new(r.x + 6, r.y + 10, 3, r.h - 20), col);
+                cv.text(&f.sb, r.x + 16, r.y + yn, &name, col);
+                cv.circle(r.x + r.w - 16, r.y + 14, 5, col);
+                let scale = format!("{}/div", si_short(ch.volts_per_div() as f64, ch.unit.name()));
+                cv.text(Self::card_font(f, &scale, r.w - 24), r.x + 16, r.y + yb, &scale, TEXT);
+                cv.text(sub_font, r.x + 16, r.y + ys, &self.card_sub(c), DIM);
+            } else {
+                cv.text_in(&f.sb, Rect::new(r.x, r.y + 8, r.w, 18), 1, &name, LABEL);
+                let (cx, cy) = (r.x + r.w / 2, r.y + 45);
+                cv.circle(cx, cy, 7, col);
+                cv.circle(cx, cy, 6, BAR);
+            }
+            cv.no_clip();
+        }
+        // logic analyser and generator, in the manner of the channels
+        let (la, gen) = self.aux_cards();
+        if let Some(r) = la {
+            let sel = matches!(root, Some(MenuId::La | MenuId::LaLines | MenuId::LaPat));
+            let l = &self.m.la;
+            let sub = format!("{} \u{b7} {}", si_short(l.thr(0) as f64, "V"), si_short(l.thr(1) as f64, "V"));
+            // grey without a probe: nothing to switch on
+            let col = if l.on || self.la_probe_ok() { la::line_color(0) } else { CARD_BORDER };
+            self.draw_aux_card(cv, r, "LA", col, l.on, sel, &format!("{} lines", l.lines().len()), &sub);
+        }
+        if let Some(r) = gen {
+            let (big, sub) = self.afg_card_text();
+            self.draw_aux_card(cv, r, "GEN", GEN_COLOR, self.m.afg_on, root == Some(MenuId::Afg), &big, &sub);
+        }
+        // time base (sample rate and depth are in the top bar)
+        let r = tr;
+        let sel = root == Some(MenuId::Horizontal);
+        cv.round(r, 7, if sel { ACCENT } else { CARD_BORDER }, 255);
+        cv.round(r.inset(2), 5, BAR, 255);
+        cv.text(&f.sb, r.x + 12, r.y + yn, "TIME", LABEL);
+        let tdiv = format!("{}/div", si_short(self.m.time_per_div() as f64, "s"));
+        cv.text(Self::card_font(f, &tdiv, r.w - 20), r.x + 12, r.y + yb, &tdiv, TEXT);
+        if self.m.zoom {
+            cv.text(&f.sb, r.x + 12, r.y + ys, &format!("zoom {}/div", si_short(tscales()[self.m.zscale] as f64, "s")), ACCENT);
+        } else {
+            let t = format!("delay {}", si_short(self.m.delay as f64, "s"));
+            cv.text(small(&t, r.w - 18), r.x + 12, r.y + ys, &t, DIM);
+        }
+        // trigger: type, slope / polarity / standard and level; source and sweep buttons
+        let r = trg;
+        let sel = root == Some(MenuId::Trigger);
+        cv.round(r, 7, if sel { ACCENT } else { CARD_BORDER }, 255);
+        cv.round(r.inset(2), 5, BAR, 255);
+        // type and slope on the first line, the level under them: it has the width up to the buttons
+        let tx = cv.text(&f.sb, r.x + 12, r.y + yn, &self.m.trig_type.name().to_uppercase(), LABEL) + 8;
+        if matches!(self.m.trig_type, TrigType::Edge | TrigType::Slope | TrigType::Timeout | TrigType::NthEdge | TrigType::Delay) {
+            draw_slope(cv, tx, r.y + 6, self.m.slope, ACCENT);
+        } else {
+            let tag = match self.m.trig_type {
+                TrigType::Pulse | TrigType::Runt => if self.m.trig_pol == Pol::Pos { "+" } else { "-" },
+                TrigType::Video => if self.m.video_std == VideoStd::Pal { "P" } else { "N" },
+                _ => "",
+            };
+            cv.text(&f.sb, tx, r.y + yn, tag, ACCENT);
+        }
+        // an LA line has the pod's threshold, not a level of its own
+        let lv = match self.m.trig_line() {
+            Some(n) => si(self.m.la.thr(n as usize / 8) as f64, "V"),
+            None => si(self.trig_level_shown() as f64, self.m.unit(self.m.trig_src)),
+        };
+        let (sb, mb) = Self::trig_parts(r);
+        // the big digits while they fit
+        cv.text(Self::card_font(f, &lv, sb.x - r.x - 18), r.x + 12, r.y + 50, &lv, TEXT);
+        let mode = match self.m.trig_mode {
+            TrigMode::Auto => "Auto",
+            TrigMode::Normal => "Normal",
+            TrigMode::Single => "Single",
+        };
+        let ts = self.m.trig_src;
+        let (src, scol) = match self.m.trig_line() {
+            Some(n) => (format!("D{}", n), la::line_color(n)),
+            None => (format!("CH{}", ts + 1), CH_COLORS[ts]),
+        };
+        for (b, val, col) in [(sb, src, scol), (mb, mode.to_string(), TEXT)] {
+            btn(cv, b, BTN, BTN_BORDER);
+            cv.text_in(&f.sb, b, 1, &val, col);
+        }
     }
 
     /// Front-panel LED mask (19 LEDs, stock order; `Inputs::set_leds` maps it to
@@ -5557,7 +5739,7 @@ impl Ui {
             MenuId::Cursor if self.m.cursor == CursorMode::Xy => vec![Item::CurMode, Item::CurA, Item::CurB, Item::CurC, Item::CurD],
             MenuId::Cursor => vec![Item::CurMode, Item::CurA, Item::CurB],
             MenuId::Display => {
-                let mut v = vec![Item::Open(MenuId::Windows), Item::Views, Item::Persist, Item::ColorGrade, Item::Intensity, Item::GridStyle, Item::GridBright, Item::GridFrame, Item::Dots, Item::ZInput, Item::Histogram, Item::XyMode, Item::Hdmi, Item::Backlight, Item::TextSize, Item::ClearDisp];
+                let mut v = vec![Item::Open(MenuId::Windows), Item::Views, Item::Persist, Item::ColorGrade, Item::Intensity, Item::GridStyle, Item::GridBright, Item::GridFrame, Item::Dots, Item::BottomBar, Item::ZInput, Item::Histogram, Item::XyMode, Item::Hdmi, Item::Backlight, Item::TextSize, Item::ClearDisp];
                 if self.m.pane == tables::PANE_TREND {
                     v.splice(1..1, [Item::TrendSel(0), Item::TrendSel(1)]);
                 }
@@ -6689,6 +6871,7 @@ impl Ui {
             Item::TrigCoup => "Coupling",
             Item::ClearDisp => "Clear",
             Item::Dots => "Dots",
+            Item::BottomBar => "Bottom bar",
             Item::Hdmi => "HDMI",
             Item::TextSize => "Text size",
             Item::ZoneSel => "Zone",
@@ -6873,6 +7056,7 @@ impl Ui {
             Item::TrigAutoNoise => onoff(m.auto_nrej),
             Item::TrigCoup => m.trig_coup.name().into(),
             Item::Dots => onoff(m.dots),
+            Item::BottomBar => if m.bar_compact { "Compact" } else { "Cards" }.into(),
             Item::Hdmi => format!("{:?}", m.hdmi),
             Item::TextSize => m.text_size.name().into(),
             Item::ZoneSel => format!("Z{}", self.zone_sel + 1),
@@ -7261,6 +7445,10 @@ impl Ui {
             }
             Item::Dots => {
                 m.dots = !m.dots;
+                self.dirty_map = true;
+            }
+            Item::BottomBar => {
+                m.bar_compact = !m.bar_compact;
                 self.dirty_map = true;
             }
             Item::AcqCores => m.cores = !m.cores,
@@ -8125,6 +8313,7 @@ impl Ui {
             Item::GridStyle => &["Full", "Light", "None"],
             Item::GridFrame | Item::TrigNoise | Item::TrigAutoNoise => &["Off", "On"],
             Item::Dots | Item::ZoneOn => &["Off", "On"],
+            Item::BottomBar => &["Cards", "Compact"],
             Item::AcqCores => &["Raw", "Matched"],
             Item::Hdmi => &["Mirror", "Waveform", "Layout"],
             Item::TextSize => return TEXT_SIZES.iter().map(|t| t.name().to_string()).collect(),
@@ -9571,7 +9760,7 @@ impl Ui {
         if !box_button { self.zoom_arm = false; }
         if self.workspace_popup_tap(x, y) { return; }
         if self.single_btn().contains(x, y) { self.key(key::SINGLE); return; }
-        if !self.full_on() && self.workspace_footer_tap(x, y) { return; }
+        if !self.full_on() && self.m.bar_compact && self.workspace_footer_tap(x, y) { return; }
         if self.power_dlg {
             self.power_dlg = false;
             let (_, [off, restart, _]) = self.pwr_layout();
@@ -12034,21 +12223,22 @@ mod tests {
         ui.dlg_layout().expect("menu open").rows.into_iter().find(|r| r.it == it).expect("row")
     }
 
-    /// The compact 30px footer returns space to the plot. Menus keep 40px rows.
+    /// Layout: the plot fills the width and the height between the top bar and the cards (results as an overlay),
+    /// touch targets of at least 40 px everywhere.
     #[test]
     fn layout_plot_size_and_touch_targets() {
         use super::*;
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
         // default: one measurement row under the plot
-        assert_eq!((ui.grid.x, ui.grid.y, ui.grid.w, ui.grid.h), (0, 40, 1024, 496));
+        assert_eq!((ui.grid.x, ui.grid.y, ui.grid.w, ui.grid.h), (0, 40, 1024, 456));
         ui.m.meas.clear();
         ui.relayout();
-        assert_eq!((ui.grid.w, ui.grid.h), (1024, 520));
+        assert_eq!((ui.grid.w, ui.grid.h), (1024, 480));
         // statistics: the results panel takes no room
         ui.m.meas = vec![(Meas::Freq, WaveId::Ch(0))];
         ui.stats_on = true;
         ui.relayout();
-        assert_eq!((ui.grid.w, ui.grid.h), (1024, 520));
+        assert_eq!((ui.grid.w, ui.grid.h), (1024, 480));
         for (_, _, r) in ui.top_buttons() {
             assert!(ui.top_hit(r).h >= 40 && r.x + r.w <= ui.net_box().x, "{:?}", r);
         }
@@ -12071,35 +12261,20 @@ mod tests {
                 ui.m.ch[c].on = c < n;
             }
             let (chs, tr, trg) = ui.cards();
-            assert!(trg.x + trg.w <= W && trg.w >= 222 && tr.w >= 124, "{} on", n);
-            for r in chs.iter().filter(|r| r.w > 0).chain([tr, trg, Ui::MENU_BTN].iter()) {
-                assert!(r.h >= 30 && r.y + r.h <= H && r.w >= 38, "{:?}", r);
+            let (sb, mb) = Ui::trig_parts(trg);
+            let menu = ui.menu_btn();
+            assert!(chs[0].x >= menu.right() && trg.right() <= ui.scr.w - 6 && trg.w >= 222 && tr.w >= 130, "{} on", n);
+            for r in chs.iter().chain([tr, trg, menu].iter()) {
+                assert!(r.h >= 40 && r.bottom() <= ui.scr.h && r.w >= 54, "{:?}", r);
             }
+            // two buttons in a card: the finger gets half of its height each
+            assert!(trg.h / 2 >= 32 && sb.w >= 60 && mb.y > sb.y + sb.h, "{:?} {:?}", sb, mb);
         }
-        // Analog off, a ref on: CH pills disappear while the reference and Time remain accessible.
-        for c in 0..NCH {
-            ui.m.ch[c].on = false;
-        }
-        ui.refs[0] = Some(RefWave { src: 0, color: 0, label: "DQ".into(), t0: 0.0, dt: 1e-9, v: vec![0.0, 1.0].into(), vpd: 0.2, offset: 0.0, on: true });
-        let (chs, tr, trg) = ui.cards();
-        assert!(chs.iter().all(|r| r.w == 0), "{:?}", chs);
-        assert!(tr.w >= 124 && trg.w >= 222);
-        ui.tap(145, BOTTOM.y + 15);
-        assert!(ui.menu_open && ui.menu == MenuId::Ref, "a stored reference has a direct source pill");
-        ui.close_menu();
-        assert!(!ui.m.zoom);
-        ui.tap(tr.x + 10, tr.y + 10);
-        assert!(ui.menu_open && ui.menu_root() == MenuId::Horizontal);
-        ui.refs[0] = None;
-        for c in 0..n_ch() {
-            ui.m.ch[c].on = true;
-        }
-
         for m in [MenuId::Main, MenuId::Trigger, MenuId::Math, MenuId::MeasAdd, MenuId::Utility, MenuId::Channel(0), MenuId::Display, MenuId::Acquire] {
             ui.open_menu(m);
             let d = ui.dlg_layout().unwrap();
             let fr = ui.frame();
-            assert!(d.close.h >= 40 && d.r.y >= fr.top.bottom() && d.r.bottom() <= fr.bottom.y, "{:?}", m);
+            assert!(d.close.h >= 40 && d.r.y >= fr.top.bottom() && d.r.bottom() <= fr.bottom.y, "{:?} {:?} {:?}", m, d.r, fr.bottom);
             assert!(d.rows.iter().all(|r| r.ctrl.h >= 40), "{:?}", m);
         }
     }
