@@ -6219,7 +6219,6 @@ impl Ui {
             Proto::Arinc429 => v.push(DecArate),
             Proto::Sent => v.extend([DecTick, DecNibbles]),
             Proto::Usb => v.push(DecUsbSpeed),
-            Proto::Manchester | Proto::Mlt3 => v.push(DecBaud),
             Proto::Cphy => v.push(DecCphyRate),
             Proto::Module(_) => v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt)),
             _ => {}

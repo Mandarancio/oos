@@ -111,8 +111,6 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         }
         // D- optional (D+ alone: no SE0)
         Proto::Usb => x3::usb(get(m.dec_src)?, opt(m.dec_cs)?, dt, crate::decode::USB_SPEEDS[m.dec_uspeed], thr, hy),
-        Proto::Manchester => oos_dsp::linecode::manchester(line, dt, baud, thr, hy),
-        Proto::Mlt3 => oos_dsp::linecode::mlt3(line, dt, baud, thr, hy),
         Proto::Cphy => oos_dsp::cphy::decode(get(m.dec_src)?, get(m.dec_src2)?,
             opt(m.dec_cs)?.ok_or("C-PHY C source missing")?, dt,
             (m.dec_cphy_rate > 0.0).then_some(m.dec_cphy_rate), thr.abs().max(1e-6)),

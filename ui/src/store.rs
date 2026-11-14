@@ -1098,6 +1098,14 @@ fn parse_lines(text: &str, bad: &mut Vec<String>) -> Model {
     if proto_missing {
         m.dec_on = false;
     }
+    // a protocol that became a module since the setup was written: its options from the shared decoder rows
+    if let (Proto::Module(i), false) = (m.dec_proto, text.lines().any(|l| l.split('=').next().is_some_and(|k| k.trim() == "dec_opt"))) {
+        let old = crate::protocols::Legacy { baud: m.dec_baud, bits: m.dec_bits, parity: m.dec_parity, canrate: m.dec_canrate, fdrate: m.dec_fdrate, arate: m.dec_arate, tick: m.dec_tick, nibbles: m.dec_nibbles, uspeed: m.dec_uspeed };
+        if let Some(o) = crate::protocols::get(i).legacy(&old) {
+            m.dec_opt = o.map(|x| x as u8);
+            m.dec_opt = crate::protocols::opt_fit(i, m.dec_opt).map(|x| x as u8);
+        }
+    }
     // a setup from before the density row: the windows and the pane already say which of the four it was
     if !text.lines().any(|l| l.split('=').next().is_some_and(|k| k.trim() == "density")) {
         m.density = match m.win_layout {

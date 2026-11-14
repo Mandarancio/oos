@@ -450,8 +450,6 @@ pub enum Proto {
     Sent,
     /// USB 1.x / 2.0 low / full speed
     Usb,
-    Manchester,
-    Mlt3,
     /// MIPI C-PHY: A/B/C electrical states and synchronized 16-bit words.
     Cphy,
     /// a protocol module (`protocols::MODULES[i]`)
@@ -459,11 +457,11 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 25] = [
+pub const BUILTIN_PROTOS: [Proto; 23] = [
     Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel, Proto::CanFd,
     Proto::FlexRay, Proto::ModbusRtu, Proto::ModbusAscii, Proto::OneWire, Proto::Ds2482, Proto::Uart9, Proto::Swd,
     Proto::Jtag, Proto::Qspi, Proto::I3c, Proto::Arinc429, Proto::Sent, Proto::Usb,
-    Proto::Manchester, Proto::Mlt3, Proto::Cphy,
+    Proto::Cphy,
 ];
 
 /// Every protocol of the Decode menu: the built-in ones, then the modules.
@@ -516,8 +514,6 @@ impl Proto {
             Proto::Arinc429 => "ARINC 429",
             Proto::Sent => "SENT",
             Proto::Usb => "USB",
-            Proto::Manchester => "Manchester",
-            Proto::Mlt3 => "MLT-3",
             Proto::Cphy => "C-PHY",
         }
     }
@@ -2225,7 +2221,6 @@ impl Model {
                 use oos_dsp::decode_ext3::{UsbSpeed, USB_FULL, USB_LOW};
                 1.0 / if crate::decode::USB_SPEEDS[self.dec_uspeed] == UsbSpeed::Low { USB_LOW } else { USB_FULL }
             }
-            Proto::Manchester | Proto::Mlt3 => 1.0 / crate::decode::BAUDS[self.dec_baud],
             Proto::Cphy => if self.dec_cphy_rate > 0.0 { 1.0 / self.dec_cphy_rate } else { 1e-9 },
         }
     }

@@ -21,6 +21,7 @@ mod dcc;
 mod dmx512;
 #[cfg(test)]
 pub mod example;
+mod linecode;
 mod spdif;
 mod usbpd;
 
@@ -31,12 +32,34 @@ pub static MODULES: &[&dyn Protocol] = &[
     &spdif::Spdif,
     &usbpd::UsbPd,
     &dcc::Dcc,
+    &linecode::Manchester,
+    &linecode::Mlt3,
     #[cfg(test)]
     &example::Example,
 ];
 
 /// Option rows a module may have (bit rate, word size, variant ...).
 pub const OPTS: usize = 4;
+
+/// The baud rates of the Decode menu (`decode::BAUDS`), as the choices of a module's option row.
+pub const BAUD_NAMES: [&str; 10] = ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200", "460800", "921600"];
+/// The default of a baud row: 115200, as the built-in decoders.
+pub const BAUD_DEFAULT: usize = 7;
+
+/// The decoder settings of a setup from before a protocol became a module: what its option rows were kept in.
+/// A module that was a built-in protocol maps them onto its options (`Protocol::legacy`).
+#[derive(Clone, Copy, Debug)]
+pub struct Legacy {
+    pub baud: usize,
+    pub bits: u32,
+    pub parity: oos_dsp::decode::Parity,
+    pub canrate: usize,
+    pub fdrate: usize,
+    pub arate: usize,
+    pub tick: usize,
+    pub nibbles: u32,
+    pub uspeed: usize,
+}
 
 /// One option row of the Decode menu: a name and its choices; the setting is the index of the choice.
 pub struct Opt {
@@ -211,6 +234,12 @@ pub trait Protocol: Sync {
     /// `mem` carries what the module wants to keep across records. A module with a view gets the Bus view pane opened
     /// when it is chosen and no pane is open.
     fn view(&self, _p: &[Packet], _opt: &[usize; OPTS], _mem: &mut Memory) -> Option<View> {
+        None
+    }
+
+    /// For a protocol that was built in before it became a module: its option settings from a setup that kept them in
+    /// the shared decoder fields (`Legacy`); `None` = the defaults.
+    fn legacy(&self, _old: &Legacy) -> Option<[usize; OPTS]> {
         None
     }
 }

@@ -1084,9 +1084,12 @@ impl Ui {
                 m.dec_baud = nearest(&crate::decode::BAUDS, *baud);
             }
             D::OneWire { ch, thr } => (m.dec_proto, m.dec_src, m.dec_thr) = (Proto::OneWire, *ch, *thr),
+            // a module since 0.1.13: its baud row is option 0
             D::Manchester { ch, bitrate, thr } => {
-                (m.dec_proto, m.dec_src, m.dec_thr) = (Proto::Manchester, *ch, *thr);
-                m.dec_baud = nearest(&crate::decode::BAUDS, *bitrate);
+                if let Some(p) = Proto::from_key("Manchester") {
+                    (m.dec_proto, m.dec_src, m.dec_thr) = (p, *ch, *thr);
+                    m.dec_opt[0] = nearest(&crate::decode::BAUDS, *bitrate) as u8;
+                }
             }
         }
     }
