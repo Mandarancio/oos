@@ -1317,6 +1317,7 @@ pub fn autoset(m: &mut Model, src: &Source) {
 /// fills 80 % of its band, the midpoint sits on the band centre). The time base shows about three periods of the
 /// slowest record. Analog channels, the trigger and the run state stay as they are.
 /// `None` where the record is flatter than the live set-up's floor (50 mV).
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 pub fn autoset_shown(m: &mut Model, waves: &[(&[f32], f64)]) -> Vec<Option<(f32, f32)>> {
     let measured: Vec<Stats> = waves.iter().map(|(v, dt)| autoset_summary(v, *dt)).collect();
     let hot: Vec<bool> = measured.iter().map(|s| s.vmax - s.vmin >= 0.05).collect();

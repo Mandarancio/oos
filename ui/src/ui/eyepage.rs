@@ -607,6 +607,7 @@ impl Page {
     }
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 impl Ui {
     /// Generated and imported references are immutable records. Eye analysis reads
     /// the whole record even when ordinary measurements follow the zoom window.
@@ -1139,6 +1140,7 @@ impl Ui {
 
     /// Left edge of the heat scale on plot `r`. On the usual split it is the top right of the plot; with the column
     /// away that corner belongs to the full-screen button, so the scale stops short of it.
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     fn heat_x(&self, r: Rect) -> i32 {
         let src = match self.src.name() {
             "DEMO" => "Demo signals",
@@ -1167,6 +1169,7 @@ impl Ui {
         chevron(cv, r.x + r.w / 2, r.y + r.h / 2, if self.eye_to > 0.5 { 1 } else { -1 }, TEXT);
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     fn eye_head(&self, cv: &mut Canvas, l: &Layout) {
         if l.head.w < 40 || l.head.h < 16 {
             return;

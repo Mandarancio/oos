@@ -1121,6 +1121,13 @@ pub fn batch_plan(s: &Settings, p: &hz::Params) -> Settings {
     b
 }
 
+/// Whether frame 0 of a batch of several frames is left out (issue #5): on unless `acq.frame0 = keep` in
+/// system.conf.
+fn frame0_drop() -> bool {
+    static K: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *K.get_or_init(|| crate::drawpipe::conf_value(None, &std::fs::read_to_string(crate::sysconf::default_path()).unwrap_or_default(), "acq.frame0").as_deref() != Some("keep"))
+}
+
 /// Frames per batch while the zone trigger runs: `zone.batch = <n>` in system.conf, default 1.
 fn zone_batch() -> u32 {
     static N: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -1510,6 +1517,41 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
             if let Some(l) = want.la.as_mut() {
                 l.cal = la_cal;
             }
+            // STOP: the batch in progress has been read. Once, before anything else of the STOP: disarm (a batch armed
+            // ahead writes the ring the views below read again, so the last batch is gone with it), and the newest
+            // frame once more raw where the live compression or the deep measurements want it (the record that stays
+            // on screen). Both STOP ways go through here: the hold (PR #7) and the views read again (`stop_view`)
+            let (hold, final_req, deep_want) = {
+                let g = out.lock().unwrap();
+                (g.hold, g.final_req, g.deep_raw)
+            };
+            if hold && !paused {
+                let ahead = armed.is_some();
+                disarm(&mut armed, &mut state, &mut bar, &mut c2h);
+                if ahead {
+                    last_batch = None;
+                }
+                let replay = last_read.as_ref().and_then(|(lb, lp, count, raw)| final_replay(lb, lp, *count, *raw, ahead, deep_want).map(|ds| (ds, *lp, *count)));
+                let match_cores = out.lock().unwrap().cores;
+                let last = replay.and_then(|(ds, lp, count)| match seq::read_raw_again(&mut state, &ds, &lp, &mut bar, &mut c2h, &mut raw_dma, count - 1, |_| {}) {
+                    Ok(()) => {
+                        n += 1;
+                        Some(Frame { stamp, ..decode_with(raw_dma.data(), &ds, &lp, n, match_cores.then_some(&mut cores)) })
+                    }
+                    Err(e) => {
+                        status(format!("raw read of the deep window at STOP: {}", e));
+                        None
+                    }
+                });
+                let mut g = out.lock().unwrap();
+                if let Some(f) = last {
+                    g.frame = f.clone();
+                    g.queue.push_back(f);
+                }
+                g.final_ack = final_req;
+                drop(g);
+                paused = true;
+            }
             // STOP (normal acquisitions only): nothing is armed, the record in the ring stays; for every new view
             // the newest frame of the last batch is read again (`stop_plan`), settings changed meanwhile wait for RUN
             let stop_view = out.lock().unwrap().stop_view;
@@ -1827,34 +1869,9 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                 }
                 continue;
             }
-            // STOP: the batch in progress has been read; the newest frame once more raw where the deep measurements
-            // want it (the record that stays on screen), then no arming until RUN or SINGLE
-            let (hold, final_req, deep_want) = {
-                let g = out.lock().unwrap();
-                (g.hold, g.final_req, g.deep_raw)
-            };
+            // STOP, after the hold above: no arming until RUN or SINGLE (the UI's final-frame request is answered there)
             if hold {
-                let ahead = armed.is_some();
-                disarm(&mut armed, &mut state, &mut bar, &mut c2h);
-                let replay = last_read.as_ref().and_then(|(lb, lp, count, raw)| final_replay(lb, lp, *count, *raw, ahead, deep_want).map(|ds| (ds, *lp, *count)));
-                let last = replay.and_then(|(ds, lp, count)| match seq::read_raw_again(&mut state, &ds, &lp, &mut bar, &mut c2h, &mut raw_dma, count - 1, |_| {}) {
-                    Ok(()) => {
-                        n += 1;
-                        Some(Frame { stamp, ..decode(raw_dma.data(), &ds, &lp, n) })
-                    }
-                    Err(e) => {
-                        status(format!("raw read of the deep window at STOP: {}", e));
-                        None
-                    }
-                });
-                let mut g = out.lock().unwrap();
-                if let Some(f) = last {
-                    g.frame = f.clone();
-                    g.queue.push_back(f);
-                }
-                g.final_ack = final_req;
-                drop(g);
-                paused = true;
+                out.lock().unwrap().final_ack = final_req;
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 continue;
             }
@@ -1924,7 +1941,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                     let raw_frame = if raw_newest(&b, &p) && count > 0 && comp_last.is_none_or(|t| t.elapsed() >= crate::compress::RAW_PERIOD) {
                         comp_last = Some(std::time::Instant::now());
                         match seq::read_raw_again(&mut state, &b, &p, &mut bar, &mut c2h, &mut raw_dma, count - 1, |_| {}) {
-                            Ok(()) => Some(decode(raw_dma.data(), &seq::raw_settings(&b), &p, 0)),
+                            Ok(()) => Some(decode_with(raw_dma.data(), &seq::raw_settings(&b), &p, 0, out.lock().unwrap().cores.then_some(&mut cores))),
                             Err(e) => {
                                 status(format!("raw read of the newest frame: {}", e));
                                 None
@@ -1941,7 +1958,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                         Some(ds) if raw_frame.is_none() => {
                             deep_last = Some(std::time::Instant::now());
                             match seq::read_raw_again(&mut state, &ds, &p, &mut bar, &mut c2h, &mut raw_dma, count - 1, |_| {}) {
-                                Ok(()) => Some(decode(raw_dma.data(), &ds, &p, 0)),
+                                Ok(()) => Some(decode_with(raw_dma.data(), &ds, &p, 0, out.lock().unwrap().cores.then_some(&mut cores))),
                                 Err(e) => {
                                     status(format!("raw read of the deep window: {}", e));
                                     None
@@ -2072,7 +2089,11 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                             (if g.take == 0 { avail } else { g.take.min(avail) }, g.cores)
                         };
                         let take = if after.is_some() { take.min(1) } else { take };
-                        skip = avail - take;
+                        // frame 0 of a batch is the frame the FPGA held across the stop, read-out and arm: recorded
+                        // before this arm, sometimes joined with older memory (a stray trace; issue #5, mj1911). With
+                        // more frames in the batch it is left out (1 of 26 at 1 kpts, 10 us/div)
+                        let stale = (avail > 1 && after.is_none() && frame0_drop()) as usize;
+                        skip = (avail - take).max(stale);
                         n += skip as u64;
                         let mut all: Vec<Frame> = dma
                             .data()

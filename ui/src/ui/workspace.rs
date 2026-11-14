@@ -13,10 +13,13 @@ enum Panel { Plot, Eye, Measurements }
 #[derive(Clone, Copy)]
 struct Gesture { panel: Panel, origin: Rect, x: i32, y: i32, at: f64, moved: bool, held: bool }
 #[derive(Clone)]
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 enum Action {
     Overlay, Stacked, Sources, Source(WaveId), Trigger(WaveId), Menu(MenuId),
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     ZoomReset, ZoomClose, FitRecord, Live, Single, Run, Panel,
     EyeRight, EyeLeft, EyeBelow, EyeFloat, EyeClose,
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     MeasureFloat, MeasureDock(StripDock), Close,
 }
 
@@ -539,6 +542,7 @@ pub(super) struct Workspace {
     popup: Option<Popup>,
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 impl Ui {
     /// Display/knob focus is independent of acquisition and measurement A/B.
     pub(super) fn selected_workspace_source(&self) -> Option<WaveId> {
@@ -926,6 +930,7 @@ impl Ui {
         }
     }
     /// Escape closes transient surfaces and leaves box/zoom modes immediately.
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub fn dismiss_context(&mut self) {
         if self.load_slot_ask { self.cancel_load_slot(); return; }
         let was_drawing = self.zoom_arm;

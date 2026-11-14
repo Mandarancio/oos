@@ -31,6 +31,7 @@ enum Samples{Reference(Arc<Vec<f32>>),Native(Arc<crate::board::Frame>,usize),Sma
 impl Samples{fn values(&self)->&[f32]{match self{Self::Reference(v)|Self::Small(v)=>v,Self::Native(f,c)=>&f.ch[*c]}}}
 #[derive(Clone)]
 struct Input{id:WaveId,samples:Samples,lo:usize,hi:usize,t0:f64,dt:f64}
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 impl Input{fn values(&self)->&[f32]{&self.samples.values()[self.lo..self.hi]}fn start(&self)->f64{self.t0+self.lo as f64*self.dt}fn end(&self)->f64{self.t0+(self.hi-1)as f64*self.dt}}
 enum Owner{Reference(Weak<Vec<f32>>),Native(Weak<crate::board::Frame>),Small(usize,u64,u64)}
 struct Version{id:WaveId,owner:Owner,version:u64}
@@ -204,8 +205,10 @@ fn compute(job:&Job)->Result<Batch,&'static str>{
     Ok(Batch{values,quality})
 }
 #[derive(Clone)]
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 struct EyeSnap {
     quality: &'static str,
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     period: f64,
     rate: f64,
     tj: f64,

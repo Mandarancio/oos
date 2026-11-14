@@ -478,6 +478,7 @@ impl Replay {
     }
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 impl Ui {
     fn capture_statistics_context(&self) -> String {
         let refs: Vec<_> = self.refs.iter().map(|r| r.as_ref().map(|r|
@@ -583,6 +584,7 @@ impl Ui {
         self.cancel_pointer();
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub fn waveform_destination(&self) -> Option<usize> { self.load_destination }
 
     pub(super) fn load_slot_box() -> Rect { Rect::new((W - 560) / 2, (H - 248) / 2, 560, 248) }
@@ -635,6 +637,7 @@ impl Ui {
     }
 
     /// Native/tool Load adds a file without silently replacing the prior source.
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub fn load_waveform_auto(&mut self, data: &[u8], name: &str) -> Result<(), String> {
         let traces = crate::store::parse_wave(data, name)?;
         self.commit_waveform_traces(traces, name, true)
@@ -968,6 +971,7 @@ impl Ui {
         shown.into_iter().enumerate().map(|(n, i)| (i, Rect::new(75 + n as i32 * (width + 7), 530, width, 66))).collect()
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub(super) fn draw_record_cards(&self, cv: &mut Canvas) {
         for (slot, rect) in self.record_cards() {
             let r = self.refs[slot].as_ref().unwrap();
@@ -988,6 +992,7 @@ impl Ui {
         (Rect::new(r.x + 6, r.y + 22, r.w / 2 - 9, 40), Rect::new(r.x + r.w / 2 + 3, r.y + 22, r.w / 2 - 9, 40))
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub(super) fn draw_session_card(&self, cv: &mut Canvas, r: Rect) {
         btn(cv, r, BAR, CARD_BORDER);
         let title = if self.session_is_sim { "SIMULATION" } else { "STORED WAVEFORM" };

@@ -511,9 +511,11 @@ impl Ui {
     }
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
 impl Ui {
     /// Whether the separate Fit record action is working with stored references.
     /// The hardware Auto action does not call this reference fitting path.
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub(super) fn reference_autoset(&self) -> bool {
         if self.sim_play {
             return true;
@@ -524,6 +526,7 @@ impl Ui {
 
     /// Bounded Fit record helper: scale/position/time base from shown refs;
     /// never called by hardware Auto and never turns an ADC channel on.
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // used by the desktop build and the tests
     pub(super) fn autoset_reference(&mut self) {
         let shown: Vec<usize> = self
             .refs
