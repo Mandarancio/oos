@@ -191,7 +191,7 @@ fn menus_fit_at(scr: Screen, ts: TextSize, all: &mut BTreeSet<String>) {
         walk(&|| open(Decode, &|u| { u.m.la.on = true; u.m.dec_la_in = true; u.set_dec_proto(p) }), &format!("Decode {} LA", p.name()), &mut out);
     }
     for t in TRIG_TYPES {
-        for p in [Proto::Uart, Proto::Can, Proto::I2c] {
+        for p in [Proto::UART, Proto::CAN, Proto::I2C] {
             walk(&|| open(Trigger, &|u| { u.set_dec_proto(p); u.set_trig_type(t) }), &format!("Trigger {} {}", t.name(), p.name()), &mut out);
         }
     }
@@ -679,16 +679,16 @@ fn four_decoders_side_by_side() {
     u.m.ch[2].on = true;
     u.m.dec_on = true;
     u.m.dec_src = 2;
-    u.set_dec_proto(Proto::Uart);
+    u.set_dec_proto(Proto::UART);
     u.m.dec_select(1);
     assert_eq!(u.m.dec_sel, 1);
     assert!(!u.m.dec_on, "a new slot starts off");
     u.m.dec_on = true;
-    u.set_dec_proto(Proto::I2c);
+    u.set_dec_proto(Proto::I2C);
     u.m.dec_select(0);
-    assert_eq!(u.m.dec_proto, Proto::Uart);
+    assert_eq!(u.m.dec_proto, Proto::UART);
     assert!(u.m.dec_is_on(0) && u.m.dec_is_on(1) && !u.m.dec_is_on(2));
-    assert_eq!(u.m.dec_view(1).dec_proto, Proto::I2c);
+    assert_eq!(u.m.dec_view(1).dec_proto, Proto::I2C);
     for _ in 0..4 {
         u.step(0.04);
     }
@@ -700,9 +700,9 @@ fn four_decoders_side_by_side() {
     // setups keep all of them
     let b = crate::store::parse_setup(&crate::store::setup_text(&u.m)).unwrap();
     assert_eq!(b.dec_sel, 0);
-    assert_eq!(b.dec_view(1).dec_proto, Proto::I2c);
+    assert_eq!(b.dec_view(1).dec_proto, Proto::I2C);
     assert!(b.dec_is_on(1));
-    assert_eq!(b.dec_proto, Proto::Uart);
+    assert_eq!(b.dec_proto, Proto::UART);
 }
 
 #[test]
@@ -2191,7 +2191,7 @@ fn gallery_at(dir: &std::path::Path, ts: TextSize) {
         ("s-pane-res", |u| { u.m.ch[1].on = true; u.m.pane = 2; u.m.meas2 = vec![(0, WaveId::Ch(0), WaveId::Ch(1)), (4, WaveId::Ch(0), WaveId::Ch(1))]; u.m.dvm_on = true; u.m.cnt_on = true; }),
         ("s-decoders", |u| {
             u.m.ch[2].on = true; u.m.dec_on = true; u.m.dec_src = 2;
-            u.m.dec_select(1); u.m.dec_on = true; u.m.dec_src = 2; u.set_dec_proto(Proto::Spi); u.m.dec_select(0);
+            u.m.dec_select(1); u.m.dec_on = true; u.m.dec_src = 2; u.set_dec_proto(Proto::SPI); u.m.dec_select(0);
             u.table = Some(tables::TableKind::Decode);
         }),
         ("s-track", |u| { u.m.cursor = CursorMode::Track; }),

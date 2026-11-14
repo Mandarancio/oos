@@ -144,7 +144,7 @@ impl DemoCfg {
         DemoCfg {
             runts: matches!(m.trig_type, TrigType::Runt | TrigType::Timeout),
             video: if m.trig_type == TrigType::Video { Some(m.video_std) } else { None },
-            bus: if m.dec_on && m.dec_proto != Proto::Uart { Some(m.dec_proto) } else { None },
+            bus: if m.dec_on && m.dec_proto != Proto::UART { Some(m.dec_proto) } else { None },
             gen: DemoGen::of(m),
         }
     }
@@ -171,26 +171,8 @@ fn demo_bus() -> &'static (oos_dsp::sim::Logic, oos_dsp::sim::Logic, [oos_dsp::s
 }
 
 
-/// Demo CAN traffic (500 kbit/s, RX logic level): a standard and an extended data frame.
-fn demo_can() -> &'static oos_dsp::sim::Logic {
-    use oos_dsp::sim::{can_logic, CanFrame};
-    static L: std::sync::OnceLock<oos_dsp::sim::Logic> = std::sync::OnceLock::new();
-    L.get_or_init(|| {
-        can_logic(
-            &[CanFrame { id: 0x123, ext: false, rtr: false, data: vec![0x11, 0x22, 0x33, 0x44] }, CanFrame { id: 0x18da_f110, ext: true, rtr: false, data: vec![0x02, 0x10, 0x03] }],
-            500e3,
-            0.0,
-            3.3,
-        )
-    })
-}
 
 
-/// Demo LIN traffic (19200 baud, 12 V bus scaled to 3.3 V): one frame with enhanced checksum.
-fn demo_lin() -> &'static oos_dsp::sim::Logic {
-    static L: std::sync::OnceLock<oos_dsp::sim::Logic> = std::sync::OnceLock::new();
-    L.get_or_init(|| oos_dsp::sim::lin_logic(&[(0x21, vec![0x10, 0x20, 0x30, 0x40], true)], 19200.0, 0.0, 3.3))
-}
 
 fn demo_signal(cfg: DemoCfg, ch: usize, t: f64) -> f64 {
     use std::f64::consts::PI;
@@ -199,13 +181,6 @@ fn demo_signal(cfg: DemoCfg, ch: usize, t: f64) -> f64 {
         return if g.mask & 1 << ch != 0 { g.v(t) * g.probe[ch] as f64 } else { 0.0 };
     }
     match (cfg.bus, ch) {
-        (Some(Proto::Can), 2) => return demo_can().v(t.rem_euclid(500e-6)),
-        (Some(Proto::Lin), 2) => return demo_lin().v(t.rem_euclid(12e-3)),
-        (Some(Proto::I2c), 2) => return demo_bus().0.v(t.rem_euclid(200e-6)),
-        (Some(Proto::I2c), 3) => return demo_bus().1.v(t.rem_euclid(200e-6)),
-        (Some(Proto::Spi), 1) => return demo_bus().2[0].v(t.rem_euclid(50e-6)),
-        (Some(Proto::Spi), 2) => return demo_bus().2[2].v(t.rem_euclid(50e-6)),
-        (Some(Proto::Spi), 3) => return demo_bus().2[1].v(t.rem_euclid(50e-6)),
         // a protocol module: its demo lines on the channels of its setup
         (Some(Proto::Module(i)), _) => {
             if let Some(d) = crate::protocols::demo(i) {

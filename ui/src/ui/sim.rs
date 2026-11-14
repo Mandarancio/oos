@@ -1320,7 +1320,7 @@ mod tests {
                 u.m.set_trigger_wave(WaveId::Ref(1), true);
             } else if change == 6 {
                 u.m.trig_type = TrigType::Bus;
-                u.m.dec_proto = Proto::Uart;
+                u.m.dec_proto = Proto::UART;
                 u.m.trig_bus = BusWhat::Data;
                 u.m.trig_bus_val = 0x55;
             }

@@ -1067,20 +1067,20 @@ impl Ui {
         m.dec_on = true;
         match d {
             D::Uart { ch, baud, bits, parity, thr, .. } => {
-                (m.dec_proto, m.dec_src, m.dec_bits, m.dec_parity, m.dec_thr) = (Proto::Uart, *ch, *bits, *parity, *thr);
+                (m.dec_proto, m.dec_src, m.dec_bits, m.dec_parity, m.dec_thr) = (Proto::UART, *ch, *bits, *parity, *thr);
                 m.dec_baud = nearest(&crate::decode::BAUDS, *baud);
             }
-            D::I2c { sda, scl, thr } => (m.dec_proto, m.dec_src, m.dec_src2, m.dec_thr) = (Proto::I2c, *sda, *scl, *thr),
+            D::I2c { sda, scl, thr } => (m.dec_proto, m.dec_src, m.dec_src2, m.dec_thr) = (Proto::I2C, *sda, *scl, *thr),
             D::Spi { clk, data, cs, mode, bits, thr } => {
-                (m.dec_proto, m.dec_src2, m.dec_cs, m.dec_mode, m.dec_bits, m.dec_thr) = (Proto::Spi, *clk, *cs, *mode, *bits, *thr);
+                (m.dec_proto, m.dec_src2, m.dec_cs, m.dec_mode, m.dec_bits, m.dec_thr) = (Proto::SPI, *clk, *cs, *mode, *bits, *thr);
                 m.dec_src = data.first().copied().unwrap_or(0);
             }
             D::Can { ch, bitrate, thr, invert } => {
-                (m.dec_proto, m.dec_src, m.dec_thr, m.dec_canh) = (Proto::Can, *ch, *thr, *invert);
+                (m.dec_proto, m.dec_src, m.dec_thr, m.dec_canh) = (Proto::CAN, *ch, *thr, *invert);
                 m.dec_canrate = nearest(&crate::decode::CAN_RATES, *bitrate);
             }
             D::Lin { ch, baud, thr } => {
-                (m.dec_proto, m.dec_src, m.dec_thr) = (Proto::Lin, *ch, *thr);
+                (m.dec_proto, m.dec_src, m.dec_thr) = (Proto::LIN, *ch, *thr);
                 m.dec_baud = nearest(&crate::decode::BAUDS, *baud);
             }
             // modules since 0.1.13; Manchester's baud row is its option 0

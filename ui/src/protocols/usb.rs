@@ -115,7 +115,7 @@ mod tests {
             let dt = 1e-8;
             let n = (d.period / dt) as usize;
             let waves: Vec<Option<Vec<f32>>> = d.lines.iter().map(|f| f.as_ref().map(|f| (0..n).map(|k| f(k as f64 * dt) as f32).collect())).collect();
-            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: 1.65, hy: 0.1, opt: [0; OPTS], sh: Shared::default() };
+            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: 1.65, hy: 0.1, opt: [0; OPTS], sh: Shared::default(), chans: [None; 4], src: [None; 4] };
             assert!(!p.decode(&l).unwrap().is_empty(), "{}", p.name());
         }
     }

@@ -4312,7 +4312,7 @@ impl Ui {
             x_prev_end = x1;
         }
         // threshold line on the source trace (LA lines have no analog level)
-        if !m.dec_on_la() && m.dec_proto != Proto::Cphy {
+        if !m.dec_on_la() && m.dec_proto != Proto::CPHY {
             let Some(source) = decode_wave(m.dec_src) else { cv.no_clip(); return; };
             let ty = self.y_of_wave(source, m.dec_thr);
             cv.dashed_hline(a.x + 26, a.x + a.w - 26, ty, 2, 6, scale(col, 160));
@@ -6175,7 +6175,7 @@ impl Ui {
         let r = p.roles();
         let on_la = self.m.dec_on_la();
         let mut v = vec![DecSel, DecOn, DecProto];
-        if self.m.la_on() && p != Proto::Cphy {
+        if self.m.la_on() && p != Proto::CPHY {
             v.push(DecIn);
         }
         v.push(DecSrc);
@@ -6191,33 +6191,22 @@ impl Ui {
         if p.diff_ok() && !on_la {
             v.push(DecDiff);
         }
-        match p {
-            Proto::Uart => v.extend([DecBaud, DecBits, DecParity, DecFmt]),
-            Proto::Spi => v.extend([DecMode, DecBits]),
-            Proto::Can => v.extend([DecCanRate, DecCanH]),
-            Proto::Lin => v.push(DecBaud),
-            Proto::Parallel => v.push(DecBits),
-            Proto::Cphy => v.push(DecCphyRate),
-            Proto::Module(_) => {
-                // the shared rows it names, then its own options
-                use crate::protocols::Row;
-                for r in p.module().map_or(&[][..], |x| x.shared()) {
-                    v.push(match r {
-                        Row::Baud => DecBaud,
-                        Row::Bits => DecBits,
-                        Row::Parity => DecParity,
-                        Row::SpiMode => DecMode,
-                        Row::CanRate => DecCanRate,
-                        Row::CanH => DecCanH,
-                        Row::UsbSpeed => DecUsbSpeed,
-                        Row::CphyRate => DecCphyRate,
-                        Row::Fmt => DecFmt,
-                    });
-                }
-                v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt));
-            }
-            _ => {}
+        // the shared rows the protocol names, then its own options
+        use crate::protocols::Row;
+        for r in p.module().map_or(&[][..], |x| x.shared()) {
+            v.push(match r {
+                Row::Baud => DecBaud,
+                Row::Bits => DecBits,
+                Row::Parity => DecParity,
+                Row::SpiMode => DecMode,
+                Row::CanRate => DecCanRate,
+                Row::CanH => DecCanH,
+                Row::UsbSpeed => DecUsbSpeed,
+                Row::CphyRate => DecCphyRate,
+                Row::Fmt => DecFmt,
+            });
         }
+        v.extend((0..p.module().map_or(0, |x| x.options().len())).map(DecOpt));
         // LA lines: the probe's comparators set the levels (LA page)
         if !on_la {
             v.push(DecThr);
@@ -6227,77 +6216,62 @@ impl Ui {
         v
     }
 
-    /// Switches the decoder protocol with sources that match the demo bus traffic.
+    /// Switches the decoder protocol with sources that match the demo bus traffic (`Protocol::setup`). On the hardware
+    /// the trigger stays as it is (the forum, eTobey: one setting must not change another); only the channels the
+    /// protocol decodes are switched on.
     fn set_dec_proto(&mut self, p: Proto) {
+        let Proto::Module(i) = p;
+        let s = crate::protocols::get(i).setup();
         if Self::decoder_uses_refs(&self.m) {
             self.m.dec_proto = p;
-            if p == Proto::Cphy { self.m.dec_thr = 0.02; self.m.dec_la_in = false; }
+            if s.la_off {
+                (self.m.dec_thr, self.m.dec_la_in) = (s.thr, false);
+            }
             return;
         }
+        let demo = !self.src.is_hw();
         let m = &mut self.m;
         let changed = m.dec_proto != p;
         m.dec_proto = p;
-        // LA input: the lines of the demo traffic (D8 UART, D9 CS, D10 clock, D11 MOSI, D12 SCL, D13 SDA)
-        m.dec_la = match p {
-            Proto::I2c => [Some(13), Some(12), None, None],
-            Proto::Spi => [Some(11), Some(10), Some(9), None],
-            Proto::Parallel => [Some(0), None, None, None],
-            Proto::Module(i) => crate::protocols::get(i).setup().la,
-            _ => [Some(8), Some(10), None, None],
-        };
-        match p {
-            Proto::Uart => {
-                (m.dec_src, m.dec_bits) = (2, 8);
-            }
-            Proto::I2c => {
-                (m.dec_src, m.dec_src2) = (2, 3);
-            }
-            Proto::Spi => {
-                (m.dec_src, m.dec_src2, m.dec_cs, m.dec_mode, m.dec_bits) = (2, 3, Some(1), 0, 8);
-            }
-            Proto::Can => {
-                (m.dec_src, m.dec_canrate, m.dec_canh) = (2, 2, false);
-            }
-            Proto::Lin => {
-                (m.dec_src, m.dec_baud) = (2, 4);
-            }
-            Proto::Parallel => {
-                (m.dec_src, m.dec_bits, m.dec_cs) = (0, 3, Some(3));
-                for channel in &mut m.ch { channel.on = true; }
-            }
-            Proto::Cphy => {
-                (m.dec_src, m.dec_src2, m.dec_cs, m.dec_thr, m.dec_bits) = (0, 1, Some(2), 0.02, 16);
-                m.dec_la_in = false;
-            }
-            // a module: its demo channels and threshold; its options from their defaults when it is newly chosen
-            Proto::Module(i) => {
-                let s = crate::protocols::get(i).setup();
-                (m.dec_src, m.dec_cs, m.dec_src4, m.dec_thr) = (s.src[0].unwrap_or(2), s.src[2], s.src[3], s.thr);
-                if let Some(c) = s.src[1] {
-                    m.dec_src2 = c;
-                }
-                if s.show {
-                    for c in s.src.into_iter().flatten().filter(|&c| c < NCH) {
-                        m.ch[c].on = true;
-                    }
-                }
-                if let Some(b) = s.bits {
-                    m.dec_bits = b;
-                }
-                if changed {
-                    m.dec_opt = crate::protocols::opt_default(i);
-                    // a module with a view of its own: open it, when no other pane is open
-                    if m.pane == 0 && crate::protocols::get(i).view(&[], &crate::protocols::opt_fit(i, m.dec_opt), &mut None).is_some() {
-                        m.pane = tables::PANE_BUS;
-                    }
-                }
+        // its demo channels, LA lines, threshold and shared rows; its own options from their defaults when it is newly
+        // chosen
+        m.dec_la = s.la;
+        // roles the protocol doesn't have keep their sources (one setting doesn't change another)
+        let r = p.roles();
+        (m.dec_src, m.dec_thr) = (s.src[0].unwrap_or(2), s.thr);
+        if r[2].is_some() {
+            m.dec_cs = s.src[2];
+        }
+        if r[3].is_some() {
+            m.dec_src4 = s.src[3];
+        }
+        if let Some(c) = s.src[1] {
+            m.dec_src2 = c;
+        }
+        if s.la_off {
+            m.dec_la_in = false;
+        }
+        use crate::protocols::Row;
+        for &(r, v) in s.rows {
+            match r {
+                Row::Baud => m.dec_baud = v as usize,
+                Row::Bits => m.dec_bits = v,
+                Row::Parity => m.dec_parity = [oos_dsp::decode::Parity::None, oos_dsp::decode::Parity::Even, oos_dsp::decode::Parity::Odd][(v as usize).min(2)],
+                Row::SpiMode => m.dec_mode = v as u8,
+                Row::CanRate => m.dec_canrate = v as usize,
+                Row::CanH => m.dec_canh = v != 0,
+                Row::UsbSpeed => m.dec_uspeed = v as usize,
+                Row::CphyRate | Row::Fmt => {}
             }
         }
-        m.ch[2.min(NCH - 1)].on = true;
-        if matches!(p, Proto::I2c | Proto::Spi) {
-            m.ch[3.min(NCH - 1)].on = true;
+        if changed {
+            m.dec_opt = crate::protocols::opt_default(i);
+            // a module with a view of its own: open it, when no other pane is open
+            if m.pane == 0 && crate::protocols::get(i).view(&[], &crate::protocols::opt_fit(i, m.dec_opt), &mut None).is_some() {
+                m.pane = tables::PANE_BUS;
+            }
         }
-        // every source the protocol uses
+        // every source the protocol uses; the demo traffic of some is on all its channels or on every channel
         let r = p.roles();
         m.ch[m.dec_src].on = true;
         if r[1].is_some() {
@@ -6309,36 +6283,27 @@ impl Ui {
         if let (Some(_), Some(c)) = (r[3], m.dec_src4) {
             m.ch[c].on = true;
         }
-        if p == Proto::Spi {
-            m.ch[1].on = true;
+        if s.show {
+            for c in s.src.into_iter().flatten().filter(|&c| c < NCH) {
+                m.ch[c].on = true;
+            }
         }
-        // a trigger that holds the demo bus still: I2C start (first SDA fall after idle), SPI CS falling
-        match p {
-            Proto::I2c => {
-                (m.trig_type, m.trig_src, m.slope, m.nth_idle, m.nth_n, m.trig_level) = (TrigType::NthEdge, 2, Slope::Fall, 20e-6, 1, 1.65);
+        if s.show_all {
+            for channel in &mut m.ch {
+                channel.on = true;
             }
-            Proto::Spi => {
-                (m.trig_type, m.trig_src, m.slope, m.trig_level) = (TrigType::Edge, 1, Slope::Fall, 1.65);
-            }
-            // CAN start of frame / LIN break: first falling edge after the bus idle
-            Proto::Can | Proto::Lin => {
-                (m.trig_type, m.trig_src, m.slope, m.nth_idle, m.nth_n, m.trig_level) = (TrigType::NthEdge, 2, Slope::Fall, 20e-6, 1, 1.65);
-            }
-            // a module: the trigger of its setup, on the channel of the role
-            Proto::Module(i) => {
-                if let Some(t) = crate::protocols::get(i).setup().trig {
-                    let c = [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][t.role.min(3)];
-                    if let Some(c) = c.filter(|&c| c < NCH) {
-                        (m.trig_src, m.slope, m.trig_level) = (c, t.slope, t.level);
-                        if t.idle > 0.0 {
-                            (m.trig_type, m.nth_idle, m.nth_n) = (TrigType::NthEdge, t.idle, 1);
-                        } else {
-                            m.trig_type = TrigType::Edge;
-                        }
-                    }
+        }
+        // the demo: a trigger that holds its traffic still, on the channel of the role
+        if let Some(t) = s.trig.filter(|_| demo) {
+            let c = [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][t.role.min(3)];
+            if let Some(c) = c.filter(|&c| c < NCH) {
+                (m.trig_src, m.slope, m.trig_level) = (c, t.slope, t.level);
+                if t.idle > 0.0 {
+                    (m.trig_type, m.nth_idle, m.nth_n) = (TrigType::NthEdge, t.idle, 1);
+                } else {
+                    m.trig_type = TrigType::Edge;
                 }
             }
-            _ => {}
         }
         self.dirty_map = true;
     }
@@ -6466,7 +6431,7 @@ impl Ui {
             Item::DecSrc2 if self.m.dec_proto.roles()[1].is_some() => self.m.dec_proto.roles()[1].unwrap_or("Clock"),
             Item::DecCs if self.m.dec_proto.roles()[2].is_some() => self.m.dec_proto.roles()[2].unwrap_or("CS"),
             Item::DecSrc4 if self.m.dec_proto.roles()[3].is_some() => self.m.dec_proto.roles()[3].unwrap_or("Source 4"),
-            Item::DecThr if self.m.dec_proto == Proto::Cphy => "Min level gap",
+            Item::DecThr if self.m.dec_proto == Proto::CPHY => "Min level gap",
             Item::TrigT1 if matches!(self.m.trig_when, WhenKind::In | WhenKind::Out) => "Lower limit",
             Item::NavHist if self.hist_pos.is_some() => "Live",
             _ => Self::label(it),
@@ -6510,14 +6475,9 @@ impl Ui {
             }
             let m = &mut self.m;
             m.trig_type = t;
-            let (what, val) = match p {
-                Proto::Can => (BusWhat::Id, 0x123),
-                Proto::Lin => (BusWhat::Id, 0x21),
-                Proto::I2c => (BusWhat::Id, 0x50),
-                // the demo device's address
-                Proto::Module(i) => crate::protocols::get(i).trigger_default(),
-                _ => (BusWhat::Frame, 0x40),
-            };
+            // a value the protocol's demo traffic contains
+            let Proto::Module(i) = p;
+            let (what, val) = crate::protocols::get(i).trigger_default();
             (m.trig_bus, m.trig_bus_val, m.ser) = (what, val as u64, SerialTrig::default());
             self.dirty_map = true;
             return;
@@ -7655,12 +7615,12 @@ impl Ui {
             }
             Item::DecSrc2 => { let next = self.decoder_source_step(Some(self.m.dec_src2), false, d); self.configure_decoder_source(1, next); }
             Item::DecCs => {
-                let next = self.decoder_source_step(self.m.dec_cs, self.m.dec_proto != Proto::Cphy, d);
+                let next = self.decoder_source_step(self.m.dec_cs, self.m.dec_proto != Proto::CPHY, d);
                 self.configure_decoder_source(2, next);
             }
             Item::DecMode => self.m.dec_mode = cyc(self.m.dec_mode as usize, 4, d) as u8,
             Item::DecBits => {
-                let (lo, hi) = if self.m.dec_proto == Proto::Uart { (5, 9) } else { (4, 32) };
+                let (lo, hi) = if self.m.dec_proto == Proto::UART { (5, 9) } else { (4, 32) };
                 self.m.dec_bits = (self.m.dec_bits as i32 + d).clamp(lo, hi) as u32;
             }
             Item::DecParity => {
@@ -8344,7 +8304,7 @@ impl Ui {
             Item::DecCanH => &["RX/TX", "CAN_H"],
             Item::TrigBusWhat => &["Frame", "ID/Addr", "Data", "Error"],
             Item::DecSrc2 => return self.decoder_sources().into_iter().map(decode_source_name).collect(),
-            Item::DecCs => return (if self.m.dec_proto == Proto::Cphy { Vec::new() } else { vec!["None".into()] }).into_iter()
+            Item::DecCs => return (if self.m.dec_proto == Proto::CPHY { Vec::new() } else { vec!["None".into()] }).into_iter()
                 .chain(self.decoder_sources().into_iter().map(decode_source_name)).collect(),
             Item::DecMode => &["0", "1", "2", "3"],
             Item::DecParity => &["None", "Even", "Odd"],
@@ -10128,10 +10088,10 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
     let hex = |v: u32| if m.dec_bits > 8 { format!("{:04X}", v) } else { format!("{:02X}", v) };
             match p.kind {
                 Kind::Addr { read } => format!("{} {}{}", hex(p.value), if read { "R" } else { "W" }, if p.ok { "" } else { " N" }),
-                Kind::Id { ext, rtr } => format!("ID {}{}{}", if ext { format!("{:08X}", p.value) } else if m.dec_proto == Proto::Lin { format!("{:02X}", p.value) } else { format!("{:03X}", p.value) }, if rtr { " RTR" } else { "" }, if p.ok { "" } else { " !P" }),
+                Kind::Id { ext, rtr } => format!("ID {}{}{}", if ext { format!("{:08X}", p.value) } else if m.dec_proto == Proto::LIN { format!("{:02X}", p.value) } else { format!("{:03X}", p.value) }, if rtr { " RTR" } else { "" }, if p.ok { "" } else { " !P" }),
                 Kind::Sample { right } => format!("{} {:0w$X}", if right { "R" } else { "L" }, p.value, w = (m.dec_bits as usize).div_ceil(4)),
                 Kind::Word { cmd } => format!("{} {:04X}{}", if cmd { "C/S" } else { "D" }, p.value, if p.ok { "" } else { " !P" }),
-                Kind::Crc => format!("{} {:X}{}", if m.dec_proto == Proto::Lin { "CS" } else { "CRC" }, p.value, if p.ok { "" } else { " !" }),
+                Kind::Crc => format!("{} {:X}{}", if m.dec_proto == Proto::LIN { "CS" } else { "CRC" }, p.value, if p.ok { "" } else { " !" }),
                 Kind::Field(l) if matches!(l, "MAC" | "SRC") && p.value2.is_some() => {
                     format!("{} {}{}", if l == "SRC" { "SRC" } else { "MAC" }, oos_dsp::linecode::mac_text(p.value, p.value2.unwrap_or(0)), if p.ok { "" } else { " !" })
                 }
@@ -10141,11 +10101,11 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
                     _ => format!("{} {:X}{}", l, p.value, if p.ok { "" } else { " !" }),
                 },
                 Kind::Ack => format!("ACK {}", p.value),
-                _ if m.dec_proto == Proto::Uart && m.dec_ascii && p.value == 0x20 => "SP".to_string(),
-                _ if m.dec_proto == Proto::Uart && m.dec_ascii && (0x21..0x7f).contains(&p.value) => format!("{}", p.value as u8 as char),
+                _ if m.dec_proto == Proto::UART && m.dec_ascii && p.value == 0x20 => "SP".to_string(),
+                _ if m.dec_proto == Proto::UART && m.dec_ascii && (0x21..0x7f).contains(&p.value) => format!("{}", p.value as u8 as char),
                 _ => match p.value2 {
                     Some(v2) => format!("{}/{}", hex(p.value), hex(v2)),
-                    None if m.dec_proto == Proto::I2c && !p.ok => format!("{} N", hex(p.value)),
+                    None if m.dec_proto == Proto::I2C && !p.ok => format!("{} N", hex(p.value)),
                     None => hex(p.value),
                 },
             }
@@ -10164,7 +10124,7 @@ fn packet_tag(m: &Model, p: &oos_dsp::decode::Packet) -> Option<&'static str> {
     }
     Some(match p.kind {
         Kind::Field(l) => &l[1..],
-        Kind::Start if matches!(m.dec_proto, Proto::Can) => "SOF",
+        Kind::Start if matches!(m.dec_proto, Proto::CAN) => "SOF",
         Kind::Start => "S",
         Kind::RepStart => "Sr",
         Kind::Break => "BRK",
@@ -10892,7 +10852,7 @@ mod tests {
     fn can_and_lin_decode_the_demo_bus() {
         use super::*;
         use oos_dsp::decode::Kind;
-        for (proto, tdiv, want_id) in [(Proto::Can, 100e-6f32, 0x123u32), (Proto::Lin, 1e-3, 0x21)] {
+        for (proto, tdiv, want_id) in [(Proto::CAN, 100e-6f32, 0x123u32), (Proto::LIN, 1e-3, 0x21)] {
             // (I2S and 1553 have their own test below)
             let mut ui = Ui::new(Source::Demo { t: 0.0 });
             ui.m.dec_on = true;
@@ -10925,7 +10885,7 @@ mod tests {
             ui.m.ch[c].on = c == 0;
         }
         ui.m.dec_on = false;
-        ui.m.dec_proto = Proto::I2c;
+        ui.m.dec_proto = Proto::I2C;
         ui.set_trig_type(TrigType::Bus);
         assert!(ui.m.dec_on && ui.m.ch[2].on && ui.m.ch[3].on, "Bus: the decoder and its sources (I2C on CH3/CH4)");
         // Bus again: nothing new recorded, still undone once
@@ -10953,7 +10913,7 @@ mod tests {
         use oos_dsp::decode::Kind;
         for id in [0x123u32, 0x18da_f110] {
             let mut ui = Ui::new(Source::Demo { t: 0.0 });
-            ui.m.dec_proto = Proto::Can;
+            ui.m.dec_proto = Proto::CAN;
             ui.set_trig_type(TrigType::Bus);
             ui.m.trig_bus_val = id as u64;
             ui.m.tscale = tscales().iter().position(|&t| (t - 50e-6).abs() < 1e-9).unwrap();
@@ -10975,7 +10935,7 @@ mod tests {
             }
         }
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
-        ui.m.dec_proto = Proto::Can;
+        ui.m.dec_proto = Proto::CAN;
         ui.set_trig_type(TrigType::Bus);
         ui.m.trig_bus = BusWhat::Error;
         ui.m.trig_mode = TrigMode::Normal;
@@ -11375,7 +11335,7 @@ mod tests {
     fn protocol_watch_names_a_new_bus() {
         use super::*;
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
-        ui.set_dec_proto(Proto::Uart);
+        ui.set_dec_proto(Proto::UART);
         // demo UART on CH3 (115200 Bd): watch on at 100 us/div (a screen record resolves the bits), a few seconds
         ui.m.ch[2].on = true;
         ui.m.tscale = tscales().iter().position(|&x| (x - 100e-6).abs() < 1e-9).unwrap();
@@ -11477,7 +11437,7 @@ mod tests {
     fn keypad_enters_a_long_can_id() {
         use super::*;
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
-        ui.m.dec_proto = Proto::Can;
+        ui.m.dec_proto = Proto::CAN;
         ui.set_trig_type(TrigType::Bus);
         ui.open_menu(MenuId::Trigger);
         ui.open_picker(Item::TrigBusVal);

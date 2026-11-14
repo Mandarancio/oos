@@ -55,7 +55,7 @@ mod tests {
         }
         ui.refs[0] = Some(RefWave { src: 0, color: 0, label: "stored SCK".into(), v: (clock).into(),
             t0: -(points as f64 / 2.0) * 1e-9, dt: 1e-9, vpd: 0.5, offset: 0.0, on: true });
-        ui.m.dec_on = true; ui.m.dec_proto = Proto::Spi; ui.m.dec_src = 0; ui.m.dec_src2 = DEC_REF_BASE;
+        ui.m.dec_on = true; ui.m.dec_proto = Proto::SPI; ui.m.dec_src = 0; ui.m.dec_src2 = DEC_REF_BASE;
         ui.m.dec_cs = None; ui.m.dec_bits = 8; ui.m.dec_mode = 0; ui.m.dec_thr = 1.65;
         ui.m.trig_type = TrigType::Bus; ui.m.trig_mode = TrigMode::Normal;
         ui.m.trig_bus = BusWhat::Data; ui.m.trig_bus_val = 0xa5;

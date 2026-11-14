@@ -424,46 +424,35 @@ pub use oos_dsp::measure::{Meas, ALL as ALL_MEAS};
 pub use oos_dsp::sim::VideoStd;
 pub use oos_dsp::trigger::{Bit, Pol};
 
-/// Serial protocol of the decoder.
+/// Protocol of the decoder: a protocol module (`protocols::MODULES[i]`). The core decoders stand first at fixed places
+/// (`Proto::UART` ...), the code that knows them by name uses those.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Proto {
-    Uart,
-    I2c,
-    Spi,
-    Can,
-    Lin,
-    Parallel,
-    /// MIPI C-PHY: A/B/C electrical states and synchronized 16-bit words.
-    Cphy,
-    /// a protocol module (`protocols::MODULES[i]`)
     Module(u8),
 }
 
-/// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 7] = [
-    Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::Parallel,
-    Proto::Cphy,
-];
-
-/// Every protocol of the Decode menu: the built-in ones, then the modules.
-pub static PROTOS: std::sync::LazyLock<Vec<Proto>> =
-    std::sync::LazyLock::new(|| BUILTIN_PROTOS.iter().copied().chain((0..crate::protocols::MODULES.len()).map(|i| Proto::Module(i as u8))).collect());
+/// Every protocol of the Decode menu, in the order of `protocols::MODULES`.
+pub static PROTOS: std::sync::LazyLock<Vec<Proto>> = std::sync::LazyLock::new(|| (0..crate::protocols::MODULES.len()).map(|i| Proto::Module(i as u8)).collect());
 
 impl Proto {
-    /// The module behind a module protocol.
+    pub const UART: Proto = Proto::Module(0);
+    pub const I2C: Proto = Proto::Module(1);
+    pub const SPI: Proto = Proto::Module(2);
+    pub const CAN: Proto = Proto::Module(3);
+    pub const LIN: Proto = Proto::Module(4);
+    pub const PARALLEL: Proto = Proto::Module(5);
+    pub const CPHY: Proto = Proto::Module(6);
+
+    /// The module behind the protocol.
     pub fn module(self) -> Option<&'static dyn crate::protocols::Protocol> {
-        match self {
-            Proto::Module(i) => Some(crate::protocols::get(i)),
-            _ => None,
-        }
+        let Proto::Module(i) = self;
+        Some(crate::protocols::get(i))
     }
 
-    /// Name in saved setups: the variant name, or the module's key.
+    /// Name in saved setups: the module's key.
     pub fn key(self) -> String {
-        match self.module() {
-            Some(p) => p.key().to_string(),
-            None => format!("{:?}", self),
-        }
+        let Proto::Module(i) = self;
+        crate::protocols::get(i).key().to_string()
     }
 
     pub fn from_key(k: &str) -> Option<Proto> {
@@ -471,35 +460,20 @@ impl Proto {
     }
 
     pub fn name(self) -> &'static str {
-        match self {
-            Proto::Module(i) => crate::protocols::get(i).name(),
-            Proto::Uart => "UART",
-            Proto::I2c => "I2C",
-            Proto::Spi => "SPI",
-            Proto::Can => "CAN",
-            Proto::Lin => "LIN",
-            Proto::Parallel => "Parallel",
-            Proto::Cphy => "C-PHY",
-        }
+        let Proto::Module(i) = self;
+        crate::protocols::get(i).name()
     }
+
     /// Role names of the sources (main, second, third optional, fourth optional); None = not used.
     pub fn roles(self) -> [Option<&'static str>; 4] {
-        match self {
-            Proto::Module(i) => crate::protocols::get(i).roles(),
-            Proto::Cphy => [Some("A"), Some("B"), Some("C"), None],
-            Proto::I2c => [Some("SDA"), Some("SCL"), None, None],
-            Proto::Spi => [Some("MOSI"), Some("Clock"), Some("CS"), None],
-            Proto::Parallel => [Some("D0"), None, Some("Clock"), None],
-            // D- optional: D+ alone decodes without SE0
-            _ =>[Some("Source"), None, None, None],
-        }
+        let Proto::Module(i) = self;
+        crate::protocols::get(i).roles()
     }
+
     /// Serial protocols on one line that can also be decoded from a differential pair (RS-485: A - B).
     pub fn diff_ok(self) -> bool {
-        if let Some(p) = self.module() {
-            return p.diff_ok();
-        }
-        matches!(self, Proto::Uart | Proto::Can | Proto::Lin)
+        let Proto::Module(i) = self;
+        crate::protocols::get(i).diff_ok()
     }
 }
 
@@ -1713,7 +1687,7 @@ impl Default for Model {
             ser: SerialTrig::default(),
             dec_thr: 1.65,
             dec_ascii: true,
-            dec_proto: Proto::Uart,
+            dec_proto: Proto::UART,
             dec_src2: 3,
             dec_cs: Some(1),
             dec_mode: 0,
@@ -2151,24 +2125,16 @@ impl Model {
         self.dec_proto = p;
     }
 
-    /// The option settings of the decoder's protocol module, in range (zeros for a built-in protocol).
+    /// The option settings of the decoder's protocol module, in range.
     pub fn dec_opts(&self) -> [usize; crate::protocols::OPTS] {
-        match self.dec_proto {
-            Proto::Module(i) => crate::protocols::opt_fit(i, self.dec_opt),
-            _ => [0; crate::protocols::OPTS],
-        }
+        let Proto::Module(i) = self.dec_proto;
+        crate::protocols::opt_fit(i, self.dec_opt)
     }
 
     /// Bit time of the decoder's protocol (s), for the protocol trigger's sampling and search window.
     pub fn bus_bit(&self) -> f64 {
-        match self.dec_proto {
-            Proto::Uart | Proto::Lin => 1.0 / crate::decode::BAUDS[self.dec_baud],
-            Proto::Can => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
-            Proto::I2c => 2.5e-6,
-            Proto::Spi | Proto::Parallel => 0.5e-6,
-            Proto::Module(i) => crate::protocols::get(i).bit_time_sh(&self.dec_opts(), &crate::protocols::Shared::of(self)),
-            Proto::Cphy => if self.dec_cphy_rate > 0.0 { 1.0 / self.dec_cphy_rate } else { 1e-9 },
-        }
+        let Proto::Module(i) = self.dec_proto;
+        crate::protocols::get(i).bit_time_sh(&self.dec_opts(), &crate::protocols::Shared::of(self))
     }
 
     pub fn time_per_div(&self) -> f32 {
@@ -2469,7 +2435,7 @@ impl Model {
     }
     /// The decoder reads logic analyser lines (the choice only counts while the LA is on).
     pub fn dec_on_la(&self) -> bool {
-        self.dec_la_in && self.la_on() && self.dec_proto != Proto::Cphy
+        self.dec_la_in && self.la_on() && self.dec_proto != Proto::CPHY
     }
     pub fn max_mem(&self) -> u64 {
         // limits 125 / 62.5 / 31.25 M (stock: 50 / 25 / 10 M); above 78.6 M only with the larger segment cap

@@ -18,6 +18,7 @@ use crate::model::{BusWhat, Slope};
 use oos_dsp::decode::Packet;
 
 mod avionics;
+mod core;
 mod dcc;
 mod debug;
 mod dmx512;
@@ -37,6 +38,14 @@ mod vehicle;
 /// The registered modules. The order is the order in the Decode menu, after the built-in protocols. Never reuse or
 /// change a module's `key`: saved setups refer to it.
 pub static MODULES: &[&dyn Protocol] = &[
+    // the core decoders at fixed places (`Proto::UART` ...): never move them
+    &core::Uart,
+    &core::I2c,
+    &core::Spi,
+    &core::Can,
+    &core::Lin,
+    &core::Parallel,
+    &core::Cphy,
     &dmx512::Dmx512,
     &spdif::Spdif,
     &usbpd::UsbPd,
@@ -100,6 +109,9 @@ pub struct Shared {
     pub cphy_rate: f64,
     /// the UART line is inverted (the protocol trigger's polarity)
     pub uart_inv: bool,
+    /// SPI: a clock pause (s) that starts a frame (0: 20 bit times), and CS active high (the protocol trigger's)
+    pub spi_timeout: f64,
+    pub spi_cs_high: bool,
 }
 
 impl Default for Shared {
@@ -121,6 +133,8 @@ impl Shared {
             usb_speed: crate::decode::USB_SPEEDS[m.dec_uspeed.min(crate::decode::USB_SPEEDS.len() - 1)],
             cphy_rate: m.dec_cphy_rate,
             uart_inv: m.ser.uart_inv,
+            spi_timeout: m.ser.spi_timeout as f64,
+            spi_cs_high: m.ser.spi_cs_high,
         }
     }
 }
@@ -169,6 +183,10 @@ pub struct Lines<'a> {
     pub opt: [usize; OPTS],
     /// the shared rows ([`Protocol::shared`])
     pub sh: Shared,
+    /// every analog channel (None: off) and the channel of each role, for a protocol whose lines are not its roles
+    /// (Parallel: the data lines from the main source upwards)
+    pub chans: [Option<&'a [f32]>; 4],
+    pub src: [Option<usize>; 4],
 }
 
 impl<'a> Lines<'a> {
@@ -196,15 +214,19 @@ pub struct Setup {
     pub trig: Option<DemoTrig>,
     /// switch the channels of all its roles on when the protocol is chosen (the demo traffic is on all of them)
     pub show: bool,
-    /// the shared Data bits row when the protocol is chosen (`None`: as it is)
-    pub bits: Option<u32>,
+    /// shared rows set when the protocol is chosen: the row and its value (an index, or the number of bits, 0/1)
+    pub rows: &'static [(Row, u32)],
+    /// switch every channel on (the protocol decodes across all of them)
+    pub show_all: bool,
+    /// the decoder takes the analog channels, not the LA lines
+    pub la_off: bool,
 }
 
 impl Default for Setup {
     /// Main line on CH3 and a second one on CH4, 3.3 V logic; the demo UART line D8 and clock D10 for the LA; the
     /// trigger as it is.
     fn default() -> Setup {
-        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65, trig: None, show: false, bits: None }
+        Setup { src: [Some(2), Some(3), None, None], la: [Some(8), Some(10), None, None], thr: 1.65, trig: None, show: false, rows: &[], show_all: false, la_off: false }
     }
 }
 
@@ -414,9 +436,9 @@ mod tests {
             assert!(m.roles()[0].is_some(), "{}: no main role", m.name());
             assert!(m.bit_time(&[0; OPTS]) > 0.0, "{}: bit time", m.name());
         }
-        // the built-in protocols must not take a module's key or name
-        for p in crate::model::BUILTIN_PROTOS {
-            assert!(!keys.contains(format!("{:?}", p).as_str()) && !names.contains(p.name()), "{:?} clashes with a module", p);
+        // the core decoders at their fixed places (`Proto::UART` ...)
+        for (p, key) in [(crate::model::Proto::UART, "Uart"), (crate::model::Proto::I2C, "I2c"), (crate::model::Proto::SPI, "Spi"), (crate::model::Proto::CAN, "Can"), (crate::model::Proto::LIN, "Lin"), (crate::model::Proto::PARALLEL, "Parallel"), (crate::model::Proto::CPHY, "Cphy")] {
+            assert_eq!(p.key(), key);
         }
     }
 
@@ -429,10 +451,14 @@ mod tests {
             let n = (3.0 * d.period / dt) as usize;
             let waves: Vec<Option<Vec<f32>>> = d.lines.iter().map(|l| l.as_ref().map(|f| (0..n).map(|k| f((k as f64 * dt).rem_euclid(d.period)) as f32).collect())).collect();
             let s = m.setup();
-            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: s.thr, hy: 0.1, opt: opt_fit(i as u8, opt_default(i as u8)), sh: Shared::default() };
+            let l = Lines { lines: std::array::from_fn(|k| waves[k].as_deref()), dt, thr: s.thr, hy: 0.1, opt: opt_fit(i as u8, opt_default(i as u8)), sh: Shared::default(), chans: [None; 4], src: [None; 4] };
             let p = m.decode(&l).unwrap_or_else(|e| panic!("{}: {}", m.name(), e));
             assert!(!p.is_empty(), "{}: nothing decoded from its demo", m.name());
-            assert!(p.iter().all(|x| x.ok), "{}: errors in its own demo: {:?}", m.name(), p.iter().find(|x| !x.ok));
+            // I2C: the master NACKs the last byte it reads before the stop, which the decoder flags like any NACK.
+            use oos_dsp::decode::Kind;
+            let read_end = |k: usize| m.key() == "I2c" && p[k].kind == Kind::Data && p.get(k + 1).is_none_or(|n| n.kind == Kind::Stop);
+            let bad = p.iter().enumerate().find(|&(k, x)| !x.ok && !read_end(k));
+            assert!(bad.is_none(), "{}: errors in its own demo: {:?}", m.name(), bad);
         }
     }
 }

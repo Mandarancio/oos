@@ -190,14 +190,14 @@ mod tests {
         assert!(!u.items(MenuId::Ref).contains(&Item::RefLoad));
         // a decoder off: not in the picker, switched off while it decodes
         u.m.dec_on = true;
-        u.m.dec_proto = Proto::Uart;
-        let k = PROTOS.iter().position(|&p| p == Proto::Uart).unwrap();
+        u.m.dec_proto = Proto::UART;
+        let k = PROTOS.iter().position(|&p| p == Proto::UART).unwrap();
         u.select_option(Item::FeatDec(k), "Off");
         assert!(!u.m.dec_on);
-        assert!(!u.options(Item::DecProto).contains(&Proto::Uart.name().to_string()));
+        assert!(!u.options(Item::DecProto).contains(&Proto::UART.name().to_string()));
         // kept in the settings of the scope
         let (c, bad) = crate::sysconf::SysConf::parse(&u.sys.text());
-        assert!(bad.is_empty() && c.features_off == ["magnetic", "sim", "load"] && c.decoders_off == [Proto::Uart.key()], "{:?}", c.features_off);
+        assert!(bad.is_empty() && c.features_off == ["magnetic", "sim", "load"] && c.decoders_off == [Proto::UART.key()], "{:?}", c.features_off);
         // and back
         u.select_option(Item::FeatOn(i), "On");
         assert!(u.feature_on("magnetic"));

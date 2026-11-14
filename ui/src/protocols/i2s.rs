@@ -45,7 +45,7 @@ impl Protocol for I2s {
     }
     /// The demo: WS on CH1, SD on CH2, SCK on CH3, all three shown; 16-bit words; the trigger on WS falling.
     fn setup(&self) -> Setup {
-        Setup { src: [Some(1), Some(2), Some(0), None], show: true, bits: Some(16), trig: Some(DemoTrig { role: 2, slope: Slope::Fall, idle: 0.0, level: 1.65 }), ..Setup::default() }
+        Setup { src: [Some(1), Some(2), Some(0), None], show: true, rows: &[(Row::Bits, 16)], trig: Some(DemoTrig { role: 2, slope: Slope::Fall, idle: 0.0, level: 1.65 }), ..Setup::default() }
     }
     fn demo(&self) -> Option<Demo> {
         // `i2s_logic` gives (SCK, WS, SD)

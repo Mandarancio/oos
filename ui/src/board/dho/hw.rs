@@ -122,14 +122,11 @@ pub fn settings(m: &Model, program_afe: bool) -> Settings {
         },
         invert: m.ch[c].invert,
     });
-    // protocol trigger: hardware edge on the line where frames start (SPI: chip select, else the data line)
+    // protocol trigger: hardware edge on the line where frames start (the protocol's start role: SPI chip select, I2S
+    // word select, else the data line)
     let mut src = if m.trig_type == TrigType::Bus {
-        match (m.dec_proto, m.dec_cs) {
-            (Proto::Spi, Some(c)) => c,
-            // a module: the line of its start role
-            (Proto::Module(i), _) => [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][crate::protocols::get(i).start_role().min(3)].unwrap_or(m.dec_src),
-            _ => m.dec_src,
-        }
+        let Proto::Module(i) = m.dec_proto;
+        [Some(m.dec_src), Some(m.dec_src2), m.dec_cs, m.dec_src4][crate::protocols::get(i).start_role().min(3)].unwrap_or(m.dec_src)
     } else {
         m.trig_src
     };
@@ -444,11 +441,8 @@ fn bus_line(m: &Model) -> Option<u8> {
     if !m.bus_on_la() {
         return None;
     }
-    match (m.dec_proto, m.dec_la[2]) {
-        (Proto::Spi, Some(n)) => Some(n),
-        (Proto::Module(i), _) => m.dec_la[crate::protocols::get(i).start_role().min(3)].or(m.dec_la[0]),
-        _ => m.dec_la[0],
-    }
+    let Proto::Module(i) = m.dec_proto;
+    m.dec_la[crate::protocols::get(i).start_role().min(3)].or(m.dec_la[0])
 }
 
 /// The UI trigger as a hardware (TPU) trigger. Two-level types: `Settings::level` is the upper level.
@@ -709,7 +703,7 @@ fn hw_rel(r: Rel) -> uarttrig::Relation {
 /// The ID condition, wider values and a mask stay with the software trigger.
 fn uart_of(m: &Model) -> Option<uarttrig::Uart> {
     use uarttrig::{Cond, ErrKind, Parity, Stop, Uart};
-    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::Uart || m.dec_on_la() || m.dec_diff.is_some() || !(1..=8).contains(&m.dec_bits) {
+    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::UART || m.dec_on_la() || m.dec_diff.is_some() || !(1..=8).contains(&m.dec_bits) {
         return None;
     }
     let s = &m.ser;
@@ -784,7 +778,7 @@ fn serial_of(m: &Model) -> Option<Trig> {
 /// of samples), 1..32 bits, and Frame (every word) or Data against value, limit and mask. MSB first, the clock edge of
 /// the decoder's mode, as the software decoder.
 fn spi_of(m: &Model) -> Option<serialtrig::Spi> {
-    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::Spi || m.dec_on_la() || !(1..=32).contains(&m.dec_bits) {
+    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::SPI || m.dec_on_la() || !(1..=32).contains(&m.dec_bits) {
         return None;
     }
     let s = &m.ser;
@@ -819,7 +813,7 @@ fn spi_of(m: &Model) -> Option<serialtrig::Spi> {
 /// against value, limit and mask, in the chosen direction. Data in any byte (`bytes` 0) stays with the software.
 fn i2c_of(m: &Model) -> Option<serialtrig::I2c> {
     use serialtrig::{Dir, I2cCond};
-    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::I2c || m.dec_on_la() {
+    if m.trig_type != TrigType::Bus || m.dec_proto != Proto::I2C || m.dec_on_la() {
         return None;
     }
     let s = &m.ser;
@@ -2475,7 +2469,7 @@ mod tests {
     fn uart_from_the_decoder_settings() {
         use oos_hal::dho::uarttrig::{Cond, ErrKind, Parity, Relation};
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.dec_bits, m.dec_baud) = (TrigType::Bus, Proto::Uart, 1, 8, 7);
+        (m.trig_type, m.dec_proto, m.dec_src, m.dec_bits, m.dec_baud) = (TrigType::Bus, Proto::UART, 1, 8, 7);
         // (condition, value) -> receiver condition (None = the software trigger)
         let cases = [
             (BusWhat::Frame, 0, Some(Cond::Start)),
@@ -2497,7 +2491,7 @@ mod tests {
         assert_eq!(uart_of(&m), None);
         // other protocols, the LA as input, RS-485: the software trigger
         (m.dec_bits, m.trig_bus) = (8, BusWhat::Frame);
-        for f in [|m: &mut Model| m.dec_proto = Proto::Spi, |m: &mut Model| m.dec_proto = Proto::from_key("Uart9").unwrap(), |m: &mut Model| m.dec_diff = Some(2), |m: &mut Model| m.trig_type = TrigType::Edge] {
+        for f in [|m: &mut Model| m.dec_proto = Proto::SPI, |m: &mut Model| m.dec_proto = Proto::from_key("Uart9").unwrap(), |m: &mut Model| m.dec_diff = Some(2), |m: &mut Model| m.trig_type = TrigType::Edge] {
             let mut x = m.clone();
             f(&mut x);
             assert_eq!(uart_of(&x), None);
@@ -2510,7 +2504,7 @@ mod tests {
     fn spi_and_i2c_from_the_decoder_settings() {
         use oos_hal::dho::serialtrig::I2cCond;
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.dec_cs, m.dec_bits, m.dec_mode) = (TrigType::Bus, Proto::Spi, 0, 1, Some(2), 8, 0);
+        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.dec_cs, m.dec_bits, m.dec_mode) = (TrigType::Bus, Proto::SPI, 0, 1, Some(2), 8, 0);
         // (condition, value) -> (value, mask) of the SPI compare; None = software
         let cases = [(BusWhat::Frame, 0, Some((0, 0))), (BusWhat::Data, 0x5a, Some((0x5a, 0xff))), (BusWhat::Data, 0x15a, None), (BusWhat::Error, 0, None), (BusWhat::Id, 1, None)];
         for (what, v, want) in cases {
@@ -2526,7 +2520,7 @@ mod tests {
         assert_eq!(spi_of(&m), None, "no chip select: software");
         // I2C: SDA on dec_src, SCL on dec_src2
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2) = (TrigType::Bus, Proto::I2c, 0, 1);
+        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2) = (TrigType::Bus, Proto::I2C, 0, 1);
         let cases = [(BusWhat::Frame, 0, Some(I2cCond::Start)), (BusWhat::Id, 0x50, Some(I2cCond::Address)), (BusWhat::Id, 0x150, None), (BusWhat::Error, 0, Some(I2cCond::MissingAck)), (BusWhat::Data, 0x12, None)];
         for (what, v, want) in cases {
             (m.trig_bus, m.trig_bus_val) = (what, v);
@@ -2552,7 +2546,7 @@ mod tests {
         use oos_hal::dho::uarttrig::{Cond, ErrKind, Relation, Stop};
         // UART: relation and limit, polarity, stop bits, error kind; a mask keeps the software
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_bits, m.trig_bus, m.trig_bus_val) = (TrigType::Bus, Proto::Uart, 8, BusWhat::Data, 0x30);
+        (m.trig_type, m.dec_proto, m.dec_bits, m.trig_bus, m.trig_bus_val) = (TrigType::Bus, Proto::UART, 8, BusWhat::Data, 0x30);
         (m.ser.rel, m.ser.max, m.ser.uart_inv, m.ser.uart_stop) = (Rel::In, 0x39, true, StopBits::Two);
         let u = uart_of(&m).unwrap();
         assert_eq!((u.cond, u.invert, u.stop), (Cond::Data(Relation::In, 0x30, 0x39), true, Stop::Two));
@@ -2564,7 +2558,7 @@ mod tests {
         assert_eq!(uart_of(&m).unwrap().cond, Cond::Error(ErrKind::Parity));
         // SPI: without CS the timeout frames; relation, limit and mask to the width; CS polarity
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.dec_cs, m.dec_bits) = (TrigType::Bus, Proto::Spi, 0, 1, None, 16);
+        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.dec_cs, m.dec_bits) = (TrigType::Bus, Proto::SPI, 0, 1, None, 16);
         (m.trig_bus, m.trig_bus_val, m.ser.rel, m.ser.max, m.ser.mask) = (BusWhat::Data, 0x1000, Rel::Out, 0x2000, 0xff00);
         assert_eq!(spi_of(&m), None, "no CS and no timeout");
         m.ser.spi_timeout = 2e-6;
@@ -2575,7 +2569,7 @@ mod tests {
         assert_eq!((s.timeout, s.cs, s.cs_high), (None, 3, true));
         // I2C: 10-bit address range, read only
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.trig_bus, m.trig_bus_val) = (TrigType::Bus, Proto::I2c, 0, 1, BusWhat::Id, 0x200);
+        (m.trig_type, m.dec_proto, m.dec_src, m.dec_src2, m.trig_bus, m.trig_bus_val) = (TrigType::Bus, Proto::I2C, 0, 1, BusWhat::Id, 0x200);
         (m.ser.ten_bit, m.ser.addr_rel, m.ser.addr_max, m.ser.dir) = (true, Rel::In, 0x2ff, I2cDir::Read);
         let i = i2c_of(&m).unwrap();
         assert_eq!((i.cond, i.ten_bit, i.addr_rel, i.addr, i.dir), (I2cCond::Address, true, Relation::In, (0x200, 0x2ff, 0x3ff), Dir::Read));
@@ -2586,7 +2580,7 @@ mod tests {
     #[test]
     fn uart_shifts_the_record_to_the_software_point() {
         let mut m = Model::default();
-        (m.trig_type, m.dec_proto, m.dec_src, m.trig_bus) = (TrigType::Bus, Proto::Uart, 0, BusWhat::Frame);
+        (m.trig_type, m.dec_proto, m.dec_src, m.trig_bus) = (TrigType::Bus, Proto::UART, 0, BusWhat::Frame);
         let u = uart_of(&m).unwrap();
         let mut s = settings(&m, false);
         let d0 = s.delay;

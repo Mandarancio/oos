@@ -249,24 +249,24 @@ fn put_bus_wave(ui: &mut Ui, slot: usize, protocol: Proto, role: usize, source: 
 
 fn proto_token(p: Proto) -> String {
     match p {
-        Proto::Parallel => "PAR".into(),
-        Proto::Uart => "RS232".into(),
-        Proto::Spi => "SPI".into(),
-        Proto::I2c => "IIC".into(),
-        Proto::Lin => "LIN".into(),
-        Proto::Can => "CAN".into(),
+        Proto::PARALLEL => "PAR".into(),
+        Proto::UART => "RS232".into(),
+        Proto::SPI => "SPI".into(),
+        Proto::I2C => "IIC".into(),
+        Proto::LIN => "LIN".into(),
+        Proto::CAN => "CAN".into(),
         other => other.name().chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_uppercase(),
     }
 }
 
 fn parse_proto(arg: &str) -> Option<Proto> {
     let a = arg.trim();
-    if kw(a, "PARallel") { return Some(Proto::Parallel); }
-    if kw(a, "RS232") || kw(a, "UART") { return Some(Proto::Uart); }
-    if kw(a, "IIC") || kw(a, "I2C") { return Some(Proto::I2c); }
-    if kw(a, "LIN") { return Some(Proto::Lin); }
-    if kw(a, "SPI") { return Some(Proto::Spi); }
-    if kw(a, "CAN") { return Some(Proto::Can); }
+    if kw(a, "PARallel") { return Some(Proto::PARALLEL); }
+    if kw(a, "RS232") || kw(a, "UART") { return Some(Proto::UART); }
+    if kw(a, "IIC") || kw(a, "I2C") { return Some(Proto::I2C); }
+    if kw(a, "LIN") { return Some(Proto::LIN); }
+    if kw(a, "SPI") { return Some(Proto::SPI); }
+    if kw(a, "CAN") { return Some(Proto::CAN); }
     PROTOS.iter().copied().find(|p| proto_token(*p).eq_ignore_ascii_case(a))
 }
 
@@ -3018,7 +3018,7 @@ impl Scpi {
             let Some(source) = parse_bus_wave(ui, arg) else {
                 self.push_err(format!("-224,\"Decoder source is unavailable\" {}", arg)); return None;
             };
-            if !put_bus_wave(ui, k, Proto::I2c, usize::from(clock), Some(source)) {
+            if !put_bus_wave(ui, k, Proto::I2C, usize::from(clock), Some(source)) {
                 self.push_err("-224,\"Decoder source is unavailable\"".into());
             }
             return None;
@@ -3031,7 +3031,7 @@ impl Scpi {
                 else { match parse_bus_wave(ui, arg) { Some(source) => Some(source), None => {
                     self.push_err(format!("-224,\"Decoder source is unavailable\" {}", arg)); return None;
                 } } };
-            if !put_bus_wave(ui, k, Proto::Spi, role, source) { self.push_err("-224,\"Decoder source is unavailable\"".into()); }
+            if !put_bus_wave(ui, k, Proto::SPI, role, source) { self.push_err("-224,\"Decoder source is unavailable\"".into()); }
             return None;
         }
         if n.len() == 2 && kw(n0, "SPI") && kw(n[1], "DBITs") {
@@ -3043,7 +3043,7 @@ impl Scpi {
                 return None;
             };
             with_bus(ui, k, |m| {
-                m.dec_proto = Proto::Spi;
+                m.dec_proto = Proto::SPI;
                 m.dec_bits = v;
             });
             return None;
@@ -3061,7 +3061,7 @@ impl Scpi {
             let Some(source) = parse_bus_wave(ui, arg) else {
                 self.push_err(format!("-224,\"Decoder source is unavailable\" {}", arg)); return None;
             };
-            if !put_bus_wave(ui, k, Proto::Uart, role, Some(source)) { self.push_err("-224,\"Decoder source is unavailable\"".into()); }
+            if !put_bus_wave(ui, k, Proto::UART, role, Some(source)) { self.push_err("-224,\"Decoder source is unavailable\"".into()); }
             return None;
         }
         if kw(which, "BAUD") {
@@ -3074,7 +3074,7 @@ impl Scpi {
             };
             let i = nearest_baud(v);
             with_bus(ui, k, |m| {
-                m.dec_proto = Proto::Uart;
+                m.dec_proto = Proto::UART;
                 m.dec_baud = i;
             });
             return None;
@@ -3101,7 +3101,7 @@ impl Scpi {
                 return None;
             };
             with_bus(ui, k, |m| {
-                m.dec_proto = Proto::Uart;
+                m.dec_proto = Proto::UART;
                 m.dec_parity = p;
             });
             return None;
@@ -3115,7 +3115,7 @@ impl Scpi {
                 return None;
             };
             with_bus(ui, k, |m| {
-                m.dec_proto = Proto::Uart;
+                m.dec_proto = Proto::UART;
                 m.dec_bits = v;
             });
             return None;
@@ -3721,7 +3721,7 @@ impl Scpi {
             let Some(protocol) = PROTOS.iter().copied().find(|p| compact(p.name()) == name) else { return illegal(self) };
             // SCPI configures an instrument, not the demo's suggested sources/trigger.
             ui.m.set_dec_proto_only(protocol);
-            if protocol == Proto::Cphy { ui.m.dec_thr = 0.02; ui.m.dec_la_in = false; }
+            if protocol == Proto::CPHY { ui.m.dec_thr = 0.02; ui.m.dec_la_in = false; }
             ui.mark_changed();
             return None;
         }
@@ -3747,7 +3747,7 @@ impl Scpi {
         }
         if kw(node, "INPut") {
             if query { return text(if ui.m.dec_la_in { "LA" } else { "WAVEFORM" }.into()); }
-            if arg.eq_ignore_ascii_case("LA") && ui.m.la_on() && ui.m.dec_proto != Proto::Cphy { ui.m.dec_la_in = true; }
+            if arg.eq_ignore_ascii_case("LA") && ui.m.la_on() && ui.m.dec_proto != Proto::CPHY { ui.m.dec_la_in = true; }
             else if arg.eq_ignore_ascii_case("WAVEFORM") || arg.eq_ignore_ascii_case("ANALOG") { ui.m.dec_la_in = false; }
             else { return illegal(self); }
             ui.mark_changed();

@@ -2774,7 +2774,7 @@ mod tests {
         m.dec_baud = 3;
         m.dec_thr = 0.8;
         m.dec_ascii = false;
-        m.dec_proto = Proto::Spi;
+        m.dec_proto = Proto::SPI;
         (m.dec_arate, m.dec_tick, m.dec_nibbles, m.dec_uspeed) = (2, 3, 4, 2);
         m.dec_src2 = 0;
         m.dec_cs = None;

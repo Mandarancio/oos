@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn needs_cs() {
         let v = vec![0.0f32; 100];
-        let l = Lines { lines: [Some(&v), Some(&v), None, None], dt: 1e-8, thr: 1.65, hy: 0.1, opt: [0; OPTS], sh: Shared::default() };
+        let l = Lines { lines: [Some(&v), Some(&v), None, None], dt: 1e-8, thr: 1.65, hy: 0.1, opt: [0; OPTS], sh: Shared::default(), chans: [None; 4], src: [None; 4] };
         assert_eq!(Qspi.decode(&l).unwrap_err(), "CS# source missing");
     }
 }
