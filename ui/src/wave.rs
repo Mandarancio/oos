@@ -179,7 +179,6 @@ struct ExtDemo {
 
 fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
     use oos_dsp::decode_ext::gen as g1;
-    use oos_dsp::decode_ext2::gen as g2;
     use oos_dsp::decode_ext3::gen as g3;
     static L: std::sync::OnceLock<Vec<(Proto, ExtDemo)>> = std::sync::OnceLock::new();
     let all = L.get_or_init(|| {
@@ -191,9 +190,6 @@ fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
         let mut v = Vec::new();
         let fd = g1::FdFrame { id: 0x123, ext: false, fd: true, brs: true, esi: false, data: (1..=12).collect() };
         v.push((Proto::CanFd, mk(g1::can_fd_logic(&[fd], 500e3, 2e6, 0.0, 3.3), None, 40e-6)));
-        let ops = [g2::SwdOp::LineReset, g2::SwdOp::JtagToSwd, g2::SwdOp::LineReset, g2::SwdOp::Idle(2), g2::SwdOp::Xfer { ap: false, read: true, a: 0, ack: 1, data: 0x2BA0_1477, bad_parity: false }, g2::SwdOp::Idle(4)];
-        let (clk, dio) = g2::swd(&ops, 1e6, 0.0, 3.3);
-        v.push((Proto::Swd, mk(dio, Some(clk), 20e-6)));
         // FlexRay 10 Mbit/s on RxD: a static frame with 8 payload bytes
         let fr = g1::FrFrame { ppi: false, nf: true, sync: false, startup: false, id: 0x2a, cycle: 5, payload: vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88], channel_b: false };
         v.push((Proto::FlexRay, mk(oos_dsp::sim::bits_logic(&g1::flexray_bits(&fr, 11), 1e-7, 20, 0.0, 3.3), None, 10e-6)));

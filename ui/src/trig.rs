@@ -38,7 +38,7 @@ pub fn decode_la(m: &Model, words: &[u16], dt: f64) -> Result<Vec<Packet>, &'sta
 /// `decode` with the threshold and hysteresis given.
 pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32) -> Result<Vec<Packet>, &'static str> {
     use oos_dsp::decode::{can, i2c, i2s, lin, mil1553, spi, uart};
-    use oos_dsp::{decode_ext as x1, decode_ext2 as x2, decode_ext3 as x3};
+    use oos_dsp::{decode_ext as x1, decode_ext3 as x3};
     let get = |c: usize| ch.get(c).copied().filter(|v| !v.is_empty()).ok_or("source channel off");
     let opt = |c: Option<usize>| -> Result<Option<&[f32]>, &'static str> { c.map(get).transpose() };
     // RS-485 / differential: A - B, threshold around 0 V like the pair's receiver
@@ -82,20 +82,6 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         }
         Proto::CanFd => x1::can_fd(line, dt, can_rate, crate::decode::FD_RATES[m.dec_fdrate], thr, hy, m.dec_canh),
         Proto::FlexRay => x1::flexray(line, dt, 10e6, thr, hy, false),
-        Proto::Swd => x2::swd(get(m.dec_src2)?, get(m.dec_src)?, thr, hy),
-        Proto::Jtag => {
-            let tdi = opt(m.dec_cs)?.ok_or("TDI source missing")?;
-            x2::jtag(get(m.dec_src2)?, get(m.dec_src)?, tdi, opt(m.dec_src4)?, None, thr, hy)
-        }
-        Proto::Qspi => {
-            let cs = opt(m.dec_cs)?.ok_or("CS# source missing")?;
-            let mut io = vec![get(m.dec_src)?];
-            if let Some(c) = opt(m.dec_src4)? {
-                io.push(c);
-            }
-            x2::qspi(cs, get(m.dec_src2)?, &io, &x2::QspiCfg::new(1, 1, 1, 3, 0, false), true, thr, hy)
-        }
-        Proto::I3c => x2::i3c(get(m.dec_src)?, get(m.dec_src2)?, &[], thr, hy),
         Proto::Arinc429 => {
             let r = crate::decode::ARINC_RATES[m.dec_arate];
             x3::arinc429(line, dt, if r > 0.0 { Some(r) } else { None }, thr, hy)

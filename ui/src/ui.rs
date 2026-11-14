@@ -6242,7 +6242,7 @@ impl Ui {
         m.dec_proto = p;
         // LA input: the lines of the demo traffic (D8 UART, D9 CS, D10 clock, D11 MOSI, D12 SCL, D13 SDA)
         m.dec_la = match p {
-            Proto::I2c | Proto::I3c => [Some(13), Some(12), None, None],
+            Proto::I2c => [Some(13), Some(12), None, None],
             Proto::Spi => [Some(11), Some(10), Some(9), None],
             Proto::Parallel => [Some(0), None, None, None],
             Proto::Module(i) => crate::protocols::get(i).setup().la,
@@ -6281,12 +6281,6 @@ impl Ui {
             Proto::Cphy => {
                 (m.dec_src, m.dec_src2, m.dec_cs, m.dec_thr, m.dec_bits) = (0, 1, Some(2), 0.02, 16);
                 m.dec_la_in = false;
-            }
-            Proto::Jtag | Proto::Qspi => {
-                (m.dec_src, m.dec_src2, m.dec_cs, m.dec_src4) = (0, 1, Some(2), Some(3));
-            }
-            Proto::I3c | Proto::Swd => {
-                (m.dec_src, m.dec_src2) = (2, 3);
             }
             // demo: one ARINC 429 line against ground (+-5 V), HI / LO at +-2.5 V
             Proto::Arinc429 => {
@@ -10202,8 +10196,12 @@ fn packet_text(m: &Model, p: &oos_dsp::decode::Packet) -> String {
 /// The short tag of an event (start, stop, acknowledge ...), None for a field with a value.
 fn packet_tag(m: &Model, p: &oos_dsp::decode::Packet) -> Option<&'static str> {
     use oos_dsp::decode::Kind;
+    // a field a protocol module names itself is no tag (the ACK of SWD has a value)
+    if m.dec_proto.module().is_some_and(|x| x.text(p, &m.dec_opts()).is_some()) {
+        return None;
+    }
     let event = matches!(p.kind, Kind::Field(l) if l.starts_with('!'));
-    if !(event || matches!(p.kind, Kind::Start | Kind::RepStart | Kind::Stop | Kind::Break) || (p.kind == Kind::Ack && m.dec_proto != Proto::Swd)) {
+    if !(event || matches!(p.kind, Kind::Start | Kind::RepStart | Kind::Stop | Kind::Break | Kind::Ack)) {
         return None;
     }
     Some(match p.kind {
@@ -11213,7 +11211,7 @@ mod tests {
             (m("Uart9"), 1e-3, "Addr"),
             (m("OneWire"), 200e-6, "ROM"),
             (m("UsbPd"), 100e-6, "HDR"),
-            (Proto::Swd, 20e-6, "REQ"),
+            (m("Swd"), 20e-6, "REQ"),
             (m("Spdif"), 20e-6, "Sample"),
             (m("Example"), 1e-3, "Data"),
             (Proto::FlexRay, 5e-6, "HCRC"),

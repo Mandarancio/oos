@@ -18,11 +18,14 @@ use crate::model::{BusWhat, Slope};
 use oos_dsp::decode::Packet;
 
 mod dcc;
+mod debug;
 mod dmx512;
 #[cfg(test)]
 pub mod example;
+mod i3c;
 mod linecode;
 mod onewire;
+mod qspi;
 mod serial;
 mod spdif;
 mod usbpd;
@@ -41,6 +44,10 @@ pub static MODULES: &[&dyn Protocol] = &[
     &serial::ModbusAscii,
     &onewire::OneWire,
     &onewire::Ds2482,
+    &debug::Swd,
+    &debug::Jtag,
+    &qspi::Qspi,
+    &i3c::I3c,
     #[cfg(test)]
     &example::Example,
 ];

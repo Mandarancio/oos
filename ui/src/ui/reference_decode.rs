@@ -365,7 +365,7 @@ mod tests {
         assert_eq!((restored.dec_src, restored.dec_src2, restored.dec_cs, restored.dec_src4, restored.dec_diff),
             (DEC_REF_BASE + 9, DEC_REF_BASE + 9, Some(DEC_REF_BASE + 9), Some(DEC_REF_BASE + 9), Some(DEC_REF_BASE + 9)));
         assert!(crate::store::set(&mut restored, "dec_src", "4").is_err(), "reserved LA IDs must not become CH indices");
-        ui.set_dec_proto(Proto::Jtag);
+        ui.set_dec_proto(Proto::from_key("Jtag").unwrap());
         assert_eq!(ui.m.dec_src, DEC_REF_BASE + 9, "protocol changes must preserve stored roles");
         let mut canvas = Canvas::new(W, H);
         ui.render(&mut canvas);
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(wait(&ui).as_ref(), packets.as_ref(), "a decimated screen must not replace retained CH samples during mixed decode");
         // All four JTAG roles are valid stored roles; non-overlap is explicit.
         for i in 2..4 { ui.refs[i] = Some(reference(vec![0.0; 100], 1e-6, 1.0, 0.5)); }
-        ui.m.dec_proto = Proto::Jtag;
+        ui.m.dec_proto = Proto::from_key("Jtag").unwrap();
         ui.m.dec_src2 = DEC_REF_BASE + 1;
         ui.m.dec_cs = Some(DEC_REF_BASE + 2);
         ui.m.dec_src4 = Some(DEC_REF_BASE + 3);

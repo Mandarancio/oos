@@ -437,10 +437,6 @@ pub enum Proto {
     Parallel,
     CanFd,
     FlexRay,
-    Swd,
-    Jtag,
-    Qspi,
-    I3c,
     Arinc429,
     Sent,
     /// USB 1.x / 2.0 low / full speed
@@ -452,10 +448,10 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 18] = [
+pub const BUILTIN_PROTOS: [Proto; 14] = [
     Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel, Proto::CanFd,
-    Proto::FlexRay, Proto::Swd,
-    Proto::Jtag, Proto::Qspi, Proto::I3c, Proto::Arinc429, Proto::Sent, Proto::Usb,
+    Proto::FlexRay,
+    Proto::Arinc429, Proto::Sent, Proto::Usb,
     Proto::Cphy,
 ];
 
@@ -497,10 +493,6 @@ impl Proto {
             Proto::Parallel => "Parallel",
             Proto::CanFd => "CAN-FD",
             Proto::FlexRay => "FlexRay",
-            Proto::Swd => "SWD",
-            Proto::Jtag => "JTAG",
-            Proto::Qspi => "Quad-SPI",
-            Proto::I3c => "I3C",
             Proto::Arinc429 => "ARINC 429",
             Proto::Sent => "SENT",
             Proto::Usb => "USB",
@@ -512,13 +504,10 @@ impl Proto {
         match self {
             Proto::Module(i) => crate::protocols::get(i).roles(),
             Proto::Cphy => [Some("A"), Some("B"), Some("C"), None],
-            Proto::I2c | Proto::I3c => [Some("SDA"), Some("SCL"), None, None],
+            Proto::I2c => [Some("SDA"), Some("SCL"), None, None],
             Proto::Spi => [Some("MOSI"), Some("Clock"), Some("CS"), None],
             Proto::I2s => [Some("SD"), Some("SCK"), Some("WS"), None],
             Proto::Parallel => [Some("D0"), None, Some("Clock"), None],
-            Proto::Swd => [Some("SWDIO"), Some("SWCLK"), None, None],
-            Proto::Jtag => [Some("TMS"), Some("TCK"), Some("TDI"), Some("TDO")],
-            Proto::Qspi => [Some("IO0"), Some("SCK"), Some("CS#"), Some("IO1")],
             // D- optional: D+ alone decodes without SE0
             Proto::Usb => [Some("D+"), None, Some("D-"), None],
             _ =>[Some("Source"), None, None, None],
@@ -2198,8 +2187,7 @@ impl Model {
             Proto::Uart | Proto::Lin => 1.0 / crate::decode::BAUDS[self.dec_baud],
             Proto::Can | Proto::CanFd => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
             Proto::I2c => 2.5e-6,
-            Proto::I3c => 0.1e-6,
-            Proto::Spi | Proto::Qspi | Proto::Swd | Proto::Jtag | Proto::Parallel => 0.5e-6,
+            Proto::Spi | Proto::Parallel => 0.5e-6,
             Proto::I2s => 0.6e-6,
             Proto::Mil1553 => 1e-6,
             Proto::FlexRay => 0.1e-6,
