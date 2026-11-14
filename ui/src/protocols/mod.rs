@@ -22,6 +22,7 @@ mod dmx512;
 #[cfg(test)]
 pub mod example;
 mod linecode;
+mod serial;
 mod spdif;
 mod usbpd;
 
@@ -34,6 +35,9 @@ pub static MODULES: &[&dyn Protocol] = &[
     &dcc::Dcc,
     &linecode::Manchester,
     &linecode::Mlt3,
+    &serial::Uart9,
+    &serial::ModbusRtu,
+    &serial::ModbusAscii,
     #[cfg(test)]
     &example::Example,
 ];
@@ -49,6 +53,7 @@ pub const BAUD_DEFAULT: usize = 7;
 /// The decoder settings of a setup from before a protocol became a module: what its option rows were kept in.
 /// A module that was a built-in protocol maps them onto its options (`Protocol::legacy`).
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // the rows of protocols that are still built in
 pub struct Legacy {
     pub baud: usize,
     pub bits: u32,

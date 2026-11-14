@@ -6212,9 +6212,7 @@ impl Ui {
             Proto::Spi => v.extend([DecMode, DecBits]),
             Proto::Can => v.extend([DecCanRate, DecCanH]),
             Proto::CanFd => v.extend([DecCanRate, DecFdRate, DecCanH]),
-            Proto::Lin | Proto::Uart9 => v.push(DecBaud),
-            Proto::ModbusRtu => v.extend([DecBaud, DecParity]),
-            Proto::ModbusAscii => v.extend([DecBaud, DecBits, DecParity]),
+            Proto::Lin => v.push(DecBaud),
             Proto::I2s | Proto::Parallel => v.push(DecBits),
             Proto::Arinc429 => v.push(DecArate),
             Proto::Sent => v.extend([DecTick, DecNibbles]),
@@ -6275,15 +6273,6 @@ impl Ui {
             // bipolar bus: threshold at 0 V
             Proto::Mil1553 => {
                 (m.dec_src, m.dec_thr) = (2, 0.0);
-            }
-            Proto::ModbusAscii => {
-                (m.dec_src, m.dec_bits) = (2, 7);
-            }
-            Proto::ModbusRtu => {
-                (m.dec_src, m.dec_baud, m.dec_parity) = (2, 4, oos_dsp::decode::Parity::Even);
-            }
-            Proto::Uart9 => {
-                (m.dec_src, m.dec_baud) = (2, 3);
             }
             Proto::Parallel => {
                 (m.dec_src, m.dec_bits, m.dec_cs) = (0, 3, Some(3));
@@ -11220,8 +11209,8 @@ mod tests {
             (m("Dcc"), 10e-3, "PRE"),
             (Proto::CanFd, 50e-6, "BRS"),
             (m("Dmx512"), 100e-6, "SC"),
-            (Proto::ModbusRtu, 1e-3, "FUNC"),
-            (Proto::Uart9, 1e-3, "Addr"),
+            (m("ModbusRtu"), 1e-3, "FUNC"),
+            (m("Uart9"), 1e-3, "Addr"),
             (Proto::OneWire, 200e-6, "ROM"),
             (m("UsbPd"), 100e-6, "HDR"),
             (Proto::Swd, 20e-6, "REQ"),

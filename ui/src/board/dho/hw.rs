@@ -2495,7 +2495,7 @@ mod tests {
         assert_eq!(uart_of(&m), None);
         // other protocols, the LA as input, RS-485: the software trigger
         (m.dec_bits, m.trig_bus) = (8, BusWhat::Frame);
-        for f in [|m: &mut Model| m.dec_proto = Proto::Spi, |m: &mut Model| m.dec_proto = Proto::Uart9, |m: &mut Model| m.dec_diff = Some(2), |m: &mut Model| m.trig_type = TrigType::Edge] {
+        for f in [|m: &mut Model| m.dec_proto = Proto::Spi, |m: &mut Model| m.dec_proto = Proto::from_key("Uart9").unwrap(), |m: &mut Model| m.dec_diff = Some(2), |m: &mut Model| m.trig_type = TrigType::Edge] {
             let mut x = m.clone();
             f(&mut x);
             assert_eq!(uart_of(&x), None);

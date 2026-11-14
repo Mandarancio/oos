@@ -37,7 +37,7 @@ pub fn decode_la(m: &Model, words: &[u16], dt: f64) -> Result<Vec<Packet>, &'sta
 
 /// `decode` with the threshold and hysteresis given.
 pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32) -> Result<Vec<Packet>, &'static str> {
-    use oos_dsp::decode::{can, i2c, i2s, lin, mil1553, spi, uart, Parity};
+    use oos_dsp::decode::{can, i2c, i2s, lin, mil1553, spi, uart};
     use oos_dsp::{decode_ext as x1, decode_ext2 as x2, decode_ext3 as x3};
     let get = |c: usize| ch.get(c).copied().filter(|v| !v.is_empty()).ok_or("source channel off");
     let opt = |c: Option<usize>| -> Result<Option<&[f32]>, &'static str> { c.map(get).transpose() };
@@ -82,11 +82,8 @@ pub(crate) fn decode_at(m: &Model, ch: [&[f32]; NCH], dt: f64, thr: f32, hy: f32
         }
         Proto::CanFd => x1::can_fd(line, dt, can_rate, crate::decode::FD_RATES[m.dec_fdrate], thr, hy, m.dec_canh),
         Proto::FlexRay => x1::flexray(line, dt, 10e6, thr, hy, false),
-        Proto::ModbusRtu => x1::modbus_rtu(line, dt, baud, m.dec_parity, thr, hy, false),
-        Proto::ModbusAscii => x1::modbus_ascii(line, dt, baud, m.dec_bits.clamp(7, 8), if m.dec_parity == Parity::None { Parity::Even } else { m.dec_parity }, thr, hy, false),
         Proto::OneWire => x1::onewire(get(m.dec_src)?, dt, thr, hy, false),
         Proto::Ds2482 => x1::ds2482(&i2c(get(m.dec_src)?, get(m.dec_src2)?, thr, hy)),
-        Proto::Uart9 => x1::uart9(line, dt, baud, thr, hy, false),
         Proto::Swd => x2::swd(get(m.dec_src2)?, get(m.dec_src)?, thr, hy),
         Proto::Jtag => {
             let tdi = opt(m.dec_cs)?.ok_or("TDI source missing")?;
@@ -142,7 +139,7 @@ pub fn matches(m: &Model, p: &Packet) -> bool {
     match m.trig_bus {
         BusWhat::Frame => match p.kind {
             Kind::Start | Kind::Break | Kind::Word { cmd: true } => true,
-            Kind::Data => matches!(m.dec_proto, Proto::Uart | Proto::Spi | Proto::Uart9 | Proto::Parallel),
+            Kind::Data => matches!(m.dec_proto, Proto::Uart | Proto::Spi | Proto::Parallel),
             Kind::Sample { right: false } => true,
             // an ARINC 429 word starts with its label
             Kind::Id { .. } => m.dec_proto == Proto::Arinc429,

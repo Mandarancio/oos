@@ -437,11 +437,8 @@ pub enum Proto {
     Parallel,
     CanFd,
     FlexRay,
-    ModbusRtu,
-    ModbusAscii,
     OneWire,
     Ds2482,
-    Uart9,
     Swd,
     Jtag,
     Qspi,
@@ -457,9 +454,9 @@ pub enum Proto {
 }
 
 /// The protocols wired by hand; the modules come after them in [`PROTOS`].
-pub const BUILTIN_PROTOS: [Proto; 23] = [
+pub const BUILTIN_PROTOS: [Proto; 20] = [
     Proto::Uart, Proto::I2c, Proto::Spi, Proto::Can, Proto::Lin, Proto::I2s, Proto::Mil1553, Proto::Parallel, Proto::CanFd,
-    Proto::FlexRay, Proto::ModbusRtu, Proto::ModbusAscii, Proto::OneWire, Proto::Ds2482, Proto::Uart9, Proto::Swd,
+    Proto::FlexRay, Proto::OneWire, Proto::Ds2482, Proto::Swd,
     Proto::Jtag, Proto::Qspi, Proto::I3c, Proto::Arinc429, Proto::Sent, Proto::Usb,
     Proto::Cphy,
 ];
@@ -502,11 +499,8 @@ impl Proto {
             Proto::Parallel => "Parallel",
             Proto::CanFd => "CAN-FD",
             Proto::FlexRay => "FlexRay",
-            Proto::ModbusRtu => "Modbus RTU",
-            Proto::ModbusAscii => "Modbus ASCII",
             Proto::OneWire => "1-Wire",
             Proto::Ds2482 => "DS2482",
-            Proto::Uart9 => "UART 9-bit",
             Proto::Swd => "SWD",
             Proto::Jtag => "JTAG",
             Proto::Qspi => "Quad-SPI",
@@ -539,7 +533,7 @@ impl Proto {
         if let Some(p) = self.module() {
             return p.diff_ok();
         }
-        matches!(self, Proto::Uart | Proto::Uart9 | Proto::ModbusRtu | Proto::ModbusAscii | Proto::Can | Proto::CanFd | Proto::FlexRay | Proto::Lin | Proto::Arinc429)
+        matches!(self, Proto::Uart | Proto::Can | Proto::CanFd | Proto::FlexRay | Proto::Lin | Proto::Arinc429)
     }
 }
 
@@ -2185,6 +2179,15 @@ impl Model {
         }
     }
 
+    /// Switches the decoder's protocol and nothing else (SCPI configures an instrument, not the demo's sources); a
+    /// module that is newly chosen starts from its default options.
+    pub fn set_dec_proto_only(&mut self, p: Proto) {
+        if let (Proto::Module(i), true) = (p, self.dec_proto != p) {
+            self.dec_opt = crate::protocols::opt_default(i);
+        }
+        self.dec_proto = p;
+    }
+
     /// The option settings of the decoder's protocol module, in range (zeros for a built-in protocol).
     pub fn dec_opts(&self) -> [usize; crate::protocols::OPTS] {
         match self.dec_proto {
@@ -2196,7 +2199,7 @@ impl Model {
     /// Bit time of the decoder's protocol (s), for the protocol trigger's sampling and search window.
     pub fn bus_bit(&self) -> f64 {
         match self.dec_proto {
-            Proto::Uart | Proto::Lin | Proto::Uart9 | Proto::ModbusRtu | Proto::ModbusAscii => 1.0 / crate::decode::BAUDS[self.dec_baud],
+            Proto::Uart | Proto::Lin => 1.0 / crate::decode::BAUDS[self.dec_baud],
             Proto::Can | Proto::CanFd => 1.0 / crate::decode::CAN_RATES[self.dec_canrate],
             Proto::I2c | Proto::Ds2482 => 2.5e-6,
             Proto::I3c => 0.1e-6,

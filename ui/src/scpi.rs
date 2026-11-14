@@ -2935,7 +2935,7 @@ impl Scpi {
                 self.push_err(format!("-224,\"Illegal parameter value\" {}", arg));
                 return None;
             };
-            with_bus(ui, k, |m| m.dec_proto = p);
+            with_bus(ui, k, |m| m.set_dec_proto_only(p));
             return None;
         }
         if n.len() == 1 && kw(n0, "DISPlay") {
@@ -3720,7 +3720,7 @@ impl Scpi {
             let name = compact(arg);
             let Some(protocol) = PROTOS.iter().copied().find(|p| compact(p.name()) == name) else { return illegal(self) };
             // SCPI configures an instrument, not the demo's suggested sources/trigger.
-            ui.m.dec_proto = protocol;
+            ui.m.set_dec_proto_only(protocol);
             if protocol == Proto::Cphy { ui.m.dec_thr = 0.02; ui.m.dec_la_in = false; }
             ui.mark_changed();
             return None;

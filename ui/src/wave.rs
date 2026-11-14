@@ -178,7 +178,6 @@ struct ExtDemo {
 }
 
 fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
-    use oos_dsp::decode::Parity;
     use oos_dsp::decode_ext::gen as g1;
     use oos_dsp::decode_ext2::gen as g2;
     use oos_dsp::decode_ext3::gen as g3;
@@ -189,21 +188,9 @@ fn ext_demo(p: Proto) -> Option<&'static ExtDemo> {
             let period = end(&a).max(b.as_ref().map_or(0.0, end)) + idle;
             ExtDemo { a, b, period }
         };
-        let uart = |bytes: &[u32], bits: u32, parity: Parity, baud: f64| {
-            let mut w = g1::Wave::new(0.0, 3.3, 20e-9);
-            w.level(true, 5.0 / baud);
-            for &b in bytes {
-                w.uart(b, bits, parity, 1, baud);
-            }
-            w.level(true, 5.0 / baud);
-            w.done()
-        };
         let mut v = Vec::new();
         let fd = g1::FdFrame { id: 0x123, ext: false, fd: true, brs: true, esi: false, data: (1..=12).collect() };
         v.push((Proto::CanFd, mk(g1::can_fd_logic(&[fd], 500e3, 2e6, 0.0, 3.3), None, 40e-6)));
-        let f: Vec<u32> = g1::modbus_rtu_frame(0x11, &[0x03, 0x00, 0x6B, 0x00, 0x03]).into_iter().map(u32::from).collect();
-        v.push((Proto::ModbusRtu, mk(uart(&f, 8, Parity::Even, 19200.0), None, 2e-3)));
-        v.push((Proto::Uart9, mk(uart(&[0x1A5, 0x0C3, 0x07E], 9, Parity::None, 9600.0), None, 1e-3)));
         let ow = [g1::Ow::Reset { presence: true }, g1::Ow::Write(0x33), g1::Ow::Read(0x28), g1::Ow::Read(0xFF), g1::Ow::Read(0x4C), g1::Ow::Read(0x3D)];
         v.push((Proto::OneWire, mk(g1::onewire_logic(&ow, 0.0, 3.3), None, 200e-6)));
         let ops = [g2::SwdOp::LineReset, g2::SwdOp::JtagToSwd, g2::SwdOp::LineReset, g2::SwdOp::Idle(2), g2::SwdOp::Xfer { ap: false, read: true, a: 0, ack: 1, data: 0x2BA0_1477, bad_parity: false }, g2::SwdOp::Idle(4)];
