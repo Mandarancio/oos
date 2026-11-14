@@ -17,6 +17,12 @@ New:
   filled. Selected lists what is on with Remove, Set and Clear all. Analysis > Measure in the start menu opens this
   page (with Back), as the Measure button and key do. The settings are in named groups: Sources, Measure over,
   Display, Parameters, More.
+- Measurements are modules (`ui/src/measures`, docs/measurement-modules.md): a module gives its measurements' tiles
+  (name, description, mark, unit, sources, category and group) and computes their values on the worker thread; one
+  line registers it. The 83 analysis measurements moved into nine modules (NRZ rate, jitter & eye, power, rails,
+  magnetics, motor, double pulse ...), the standard and pair measurements are placed by two more. Their values are
+  bit for bit the same; every module is checked by the tests (numbers, names, places, a square wave through
+  `compute`).
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`

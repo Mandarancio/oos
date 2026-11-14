@@ -341,9 +341,9 @@ mod tests {
         assert_eq!(ui.menu, MenuId::Measure, "settings stays reachable from the catalog");
         ui.close_menu();
         ui.key(key::MEASURE);
-        ui.catalog_add(super::super::meascatalog::Cat::LowTime);
+        ui.catalog_add(super::super::meascatalog::tile(crate::measures::std_id(Meas::LowTime)));
         assert!(ui.m.meas.iter().any(|e| e.0 == Meas::LowTime));
-        ui.catalog_add(super::super::meascatalog::Cat::LowTime);
+        ui.catalog_add(super::super::meascatalog::tile(crate::measures::std_id(Meas::LowTime)));
         assert!(!ui.m.meas.iter().any(|e| e.0 == Meas::LowTime), "adding again removes it");
     }
 

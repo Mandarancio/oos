@@ -182,6 +182,7 @@ For how the hardware works, see the [hardware overview](https://deckerjulian.git
 - Model railways: NMRA DCC (contributed by Arjen Halma), with a view of the layout in Display > Second pane > Bus view:
   locomotives, turnouts, signals, and the track status, green while live and red after an emergency stop
 - New decoders come as protocol modules: one file, one registration ([docs/protocol-modules.md](docs/protocol-modules.md))
+- New measurements come as measurement modules the same way ([docs/measurement-modules.md](docs/measurement-modules.md))
 
 **Analysers**
 - Spectrum analyser: resolution from the whole record, span that follows the signal in the pane, fundamental and harmonics

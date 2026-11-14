@@ -69,8 +69,7 @@ pub const MEAS_SELECTION_MAX: usize = 1024;
 
 /// Persisted catalog IDs are only the extra Wave rows; ordinary Meas/pairs retain their existing formats.
 pub fn catalog_id_valid(id: u16) -> bool {
-    matches!(id, 15..=16 | 40..=51 | 60..=66 | 70..=76 | 80..=82 | 90..=93
-        | 100..=118 | 130..=137 | 150..=153 | 170..=186)
+    crate::measures::persisted(id)
 }
 
 /// A waveform a tool can name. A channel is the live front end. A ref is one stored record, measured at

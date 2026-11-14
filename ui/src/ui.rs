@@ -276,6 +276,15 @@ const DEC_BAND: i32 = 28;
 const REF_COLORS: [(&str, Rgb); 5] = [("White", rgb(0xd8, 0xd8, 0xd8)), ("Red", rgb(0xf0, 0x60, 0x60)), ("Green", rgb(0x60, 0xe0, 0x90)), ("Blue", rgb(0x70, 0xa8, 0xf8)), ("Violet", rgb(0xc8, 0x88, 0xf0))];
 /// Kinds of delay and phase measurement and of second panes, for the setups.
 pub const PAIRS_N: usize = tools::PAIRS.len();
+/// The short names of the two-source variants (strip, SCPI).
+pub fn pair_short_name(k: usize) -> &'static str {
+    tools::PAIRS[k.min(PAIRS_N - 1)].0
+}
+
+/// Clock recovery of the eye for the measurement modules: samples per UI and the recovered clock.
+pub fn eye_infer(v: &[f32], dt: f64, rate: Option<f64>) -> Result<(f64, oos_dsp::eye::Clock), String> {
+    eyepage::automatic::infer(v, dt, rate, false).map(|(s, clk)| (s.samples_per_ui, clk))
+}
 pub const PANES_N: usize = tables::PANES.len();
 pub use eyepage::EYE_ITEMS;
 pub use panes::{PANE_HARMS, TREND_SEL_N};
@@ -1082,7 +1091,7 @@ pub struct Ui {
     /// Add-measurements catalog: tab, selected button, which groups are open, scroll, and the extra sources.
     cat_tab: u8,
     cat_sel: u16,
-    cat_open: [u16; meascatalog::TABS.len()],
+    cat_open: [u16; crate::measures::CATEGORIES.len()],
     cat_scroll: i32,
     cat_c: WaveId,
     cat_d: WaveId,
@@ -1479,7 +1488,7 @@ impl Ui {
         let mut ui = Ui {
             cat_tab: 0,
             cat_sel: 1,
-            cat_open: [1; meascatalog::TABS.len()],
+            cat_open: [1; crate::measures::CATEGORIES.len()],
             cat_scroll: 0,
             cat_c: WaveId::Ch(2),
             cat_d: WaveId::Ch(3),

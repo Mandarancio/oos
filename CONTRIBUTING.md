@@ -21,6 +21,12 @@ that whole hardware variant verified ([docs/models.md](docs/models.md) 2.1).
 A decoder comes as a protocol module: one file in `ui/src/protocols`, one line to register it, the decoder itself
 usually in `oos-dsp`. [docs/protocol-modules.md](docs/protocol-modules.md) walks through it.
 
+## New measurements
+
+Measurements come as a measurement module: a file in `ui/src/measures` with their tiles and their computation, one
+line to register it, the signal processing usually in `oos-dsp`. [docs/measurement-modules.md](docs/measurement-modules.md)
+walks through it.
+
 ## Before a pull request
 
 ```sh

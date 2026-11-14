@@ -28,6 +28,7 @@ mod hostname;
 mod http;
 mod board;
 mod math;
+mod measures;
 mod mdns;
 mod model;
 mod net;
