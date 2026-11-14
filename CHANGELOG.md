@@ -60,6 +60,10 @@ Changed:
 
 Fixed:
 
+- Choosing a trigger type changed settings the other types share (found by a new test after eTobey's point in the
+  forum): Pulse switched CH4 on and made it the source, Video set CH2 to 0.2 V/div, Setup/Hold switched CH3 on, Nth
+  edge turned the slope to falling. These presets suit the demo signals only; on the hardware a trigger type now sets
+  its own parameters and leaves the channels, the source, the level and the slope as they were.
 - Dots mode drew min/max pairs as two dots and lost the edges of a square at slow time bases (PR #7).
 - Minimum persistence flickered with the batch sizes; the picture is graded by the frames it holds (PR #7).
 - Mean-type measurements on min/max pairs are shown as not available instead of wrong (PR #7).

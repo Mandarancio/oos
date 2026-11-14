@@ -62,6 +62,8 @@ mod graphics;
 pub mod views;
 mod monitor;
 mod features;
+#[cfg(test)]
+mod interplay_tests;
 pub use views::VIEWS_MAX;
 mod script;
 #[cfg(test)]
@@ -6562,6 +6564,11 @@ impl Ui {
             self.dirty_map = true;
             return;
         }
+        // the presets below suit the demo signals (each type on a channel that shows it). On the hardware a trigger
+        // type sets only its own parameters: the channels, the source, the level and the slope, which the other types
+        // share, stay as they were (the forum, eTobey: one setting must not change another)
+        let hw = self.src.is_hw();
+        let shared = (self.m.ch.clone(), self.m.trig_src, self.m.trig_level, self.m.slope);
         let m = &mut self.m;
         m.trig_type = t;
         let on = |c: usize, m: &mut Model| m.ch[c].on = true;
@@ -6620,6 +6627,9 @@ impl Ui {
         }
         if m.trig_type != TrigType::Runt && m.trig_when == WhenKind::Off {
             m.trig_when = WhenKind::Lt;
+        }
+        if hw {
+            (m.ch, m.trig_src, m.trig_level, m.slope) = shared;
         }
         self.dirty_map = true;
     }
