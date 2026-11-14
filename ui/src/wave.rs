@@ -44,6 +44,8 @@ pub struct Record {
     pub raw: Option<Raw>,
     /// logic analyser lines D0..D15 of the same acquisition (LA on)
     pub la: Option<crate::ui::la::LaRec>,
+    /// the points are min/max pairs (`to_record` peak detect: point 2j the minimum, 2j+1 the maximum of one span)
+    pub pairs: bool,
 }
 
 #[derive(Clone)]
@@ -53,6 +55,17 @@ pub struct Raw {
     pub i1: usize,
     /// time of sample i0 relative to the trigger (s)
     pub t0: f64,
+}
+
+/// State of a hardware segmented recording as the UI sees it (`Source::seg_sync`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SegView {
+    pub phase: crate::board::SegPhase,
+    pub total: u32,
+    pub recorded: u32,
+    pub read: u32,
+    /// frames of the read-back still in the queue
+    pub queued: bool,
 }
 
 pub enum Source {
@@ -426,6 +439,12 @@ fn demo_la(t: f64) -> u16 {
     w
 }
 
+/// The record `Source::acquire` makes of a hardware frame: 3600 points across the screen.
+pub fn hw_record(m: &Model, f: crate::board::Frame) -> Record {
+    let window = m.time_per_div() as f64 * HDIV as f64;
+    crate::board::to_record(&std::sync::Arc::new(f), m, 3600, window, m.delay as f64 - window / 2.0)
+}
+
 impl Source {
     /// The hardware applies inversion, coupling and bandwidth itself; the other sources get them from `condition`.
     pub fn is_hw(&self) -> bool {
@@ -433,6 +452,25 @@ impl Source {
     }
 
     /// The generator settings for the hardware thread: every step, the output must follow also while stopped.
+    /// Readers of the records that only the UI knows of (protocol watch, XY) for the hardware thread
+    /// (`Shared::needs_raw`: no live compression).
+    pub fn hw_needs_raw(&self, on: bool) {
+        if let Source::Hw { shared, .. } = self {
+            shared.lock().unwrap().needs_raw = on;
+        }
+    }
+
+    /// STOP for the hardware thread (`Shared::hold`): whether it may arm, and the newest final-frame request. True when
+    /// that request is done and every frame before it was taken (always for other sources).
+    pub fn hw_hold(&self, hold: bool, req: u64) -> bool {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            (g.hold, g.final_req) = (hold, req);
+            return g.final_ack >= req && g.queue.is_empty();
+        }
+        true
+    }
+
     pub fn publish_afg(&self, m: &Model) {
         if let Source::Hw { shared, .. } = self {
             let mut g = shared.lock().unwrap();
@@ -489,6 +527,89 @@ impl Source {
         None
     }
 
+    /// Hardware source: why the mask/zone unit is off for the current settings (`Shared::unit_blocked`).
+    pub fn hw_unit_blocked(&self) -> Option<String> {
+        if let Source::Hw { shared, .. } = self {
+            return shared.lock().unwrap().unit_blocked.clone();
+        }
+        None
+    }
+
+    /// Hardware source: the mask table last loaded (`Shared::mask_table`).
+    pub fn hw_mask_table(&self) -> Option<std::sync::Arc<Vec<[u8; 4]>>> {
+        if let Source::Hw { shared, .. } = self {
+            return shared.lock().unwrap().mask_table.clone();
+        }
+        None
+    }
+
+    /// Hardware source: hands the zone trigger the UI wants to the acquisition thread (None: off) and returns the latest
+    /// reading; None off the hardware.
+    pub fn hw_zone(&self, want: Option<crate::board::ZoneWant>) -> Option<Option<crate::board::ZoneRead>> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            if g.zone_want != want {
+                g.zone_want = want;
+            }
+            return Some(g.zone);
+        }
+        None
+    }
+
+    /// Hardware source: hands the mask test the UI wants to the acquisition thread (None: off) and returns the latest
+    /// counter reading; None off the hardware.
+    pub fn hw_mask(&self, want: Option<crate::board::MaskWant>) -> Option<Option<crate::board::MaskRead>> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            if g.mask_want != want {
+                g.mask_want = want;
+            }
+            return Some(g.mask);
+        }
+        None
+    }
+
+    /// Hardware source: hands the DVM set-up the UI wants to the acquisition thread (None: off) and returns the latest
+    /// reading; None off the hardware.
+    pub fn hw_dvm(&self, want: Option<crate::board::DvmWant>) -> Option<Option<crate::board::DvmRead>> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            g.dvm_want = want;
+            return Some(g.dvm);
+        }
+        None
+    }
+
+    /// Hardware source: asks for measure-unit levels (`Shared::levels_want`) and returns the latest answer; None for
+    /// other sources.
+    pub fn hw_levels(&self, want: Option<(u64, u64, u32)>) -> Option<Option<(u64, [Option<crate::board::ChLevels>; 4])>> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            g.levels_want = want;
+            return Some(g.levels);
+        }
+        None
+    }
+
+    /// Hardware source: asks for one raw measure-unit run (`Shared::slots_want`) and returns the latest answer; None
+    /// for other sources.
+    pub fn hw_slots(&self, want: u64) -> Option<Option<crate::board::SlotDump>> {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            g.slots_want = Some(want);
+            return Some(g.slots);
+        }
+        None
+    }
+
+    /// Hardware source with `trig.hw_status = on`: the latest trigger status of a batch (`Shared::trig_fired`).
+    pub fn hw_trig_fired(&self) -> Option<(u64, Option<bool>)> {
+        if let Source::Hw { shared, .. } = self {
+            return shared.lock().unwrap().trig_fired;
+        }
+        None
+    }
+
     /// Hardware source: FPGA version (0 = not reached) and the latest XADC reading (die degC, VCCINT V).
     pub fn hw_board(&self) -> Option<(u32, Option<(f32, f32)>)> {
         if let Source::Hw { shared, .. } = self {
@@ -512,6 +633,46 @@ impl Source {
             }
         }
         None
+    }
+
+    /// Sample rate and depth as the top bar shows them: of the hardware when it runs, else the model's choice.
+    pub fn rate_depth(&self, m: &Model) -> (f64, u64) {
+        self.hw_rate_depth().map(|(r, n)| (r, n as u64)).unwrap_or_else(|| m.srate_depth())
+    }
+
+    /// Hardware segments: tells the thread the recording number and whether the acquisition runs; returns phase,
+    /// segments asked for, recorded and read back, and whether frames are still queued. None without the hardware
+    /// source.
+    pub fn seg_sync(&self, run: u64, running: bool) -> Option<SegView> {
+        let Source::Hw { shared, .. } = self else { return None };
+        let mut g = shared.lock().unwrap();
+        (g.seg.run, g.seg.running) = (run, running);
+        let current = g.seg.done_run == run;
+        Some(SegView { phase: if current { g.seg.phase } else { crate::board::SegPhase::Idle }, total: g.seg.total, recorded: g.seg.recorded, read: g.seg.read, queued: !g.queue.is_empty() })
+    }
+
+    /// Hardware segments: the trigger times read back so far (seconds since the first trigger).
+    pub fn seg_times(&self) -> Vec<Option<f64>> {
+        match self {
+            Source::Hw { shared, .. } => shared.lock().unwrap().seg.times.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Hardware segments: asks the thread to play segment `k`; `seg_shown` delivers it.
+    pub fn seg_request(&self, k: u32) {
+        if let Source::Hw { shared, .. } = self {
+            let mut g = shared.lock().unwrap();
+            (g.seg.want, g.seg.shown) = (Some(k), None);
+        }
+    }
+
+    /// Hardware segments: the segment asked for with `seg_request`, as a record for the screen.
+    pub fn seg_shown(&self, m: &Model) -> Option<(u32, Record)> {
+        let Source::Hw { shared, .. } = self else { return None };
+        let (k, f) = shared.lock().unwrap().seg.shown.take()?;
+        let window = m.time_per_div() as f64 * HDIV as f64;
+        Some((k, crate::board::to_record(&std::sync::Arc::new(f), m, 3600, window, m.delay as f64 - window / 2.0)))
     }
 
     /// Hardware source in STOP: the view shown (time per div, delay; None: none to read for), and the frame the
@@ -568,11 +729,13 @@ impl Source {
         if let Source::Hw { shared, seen } = self {
             let mut g = shared.lock().unwrap();
             g.want = Some(board().want(m));
+            g.deep_raw = crate::deepmeas::want(m);
             g.slow = board().slow_mode(m);
             // running: no STOP view any more, the thread acquires again
             (g.stop_view, g.replay) = (None, None);
             g.stamp = m.hw_stamp;
             g.cores = m.cores;
+            g.avg_clear = m.hw_avg_clear;
             // SINGLE takes nothing from before the key press
             let fresh = loop {
                 match g.queue.pop_front() {
@@ -590,7 +753,7 @@ impl Source {
             };
             *seen = f.seq;
             drop(g);
-            return Some(crate::board::to_record(&std::sync::Arc::new(f), m, n, window, t_first));
+            return Some(hw_record(m, f));
         }
         if let Source::Live { shared, seen, words, xinc, yinc, yorg, yref } = self {
             let g = shared.lock().unwrap();
@@ -664,7 +827,7 @@ impl Source {
                     // protocol trigger on LA lines: the decoder over the demo lines
                     _ if m.bus_on_la() => {
                         let lines: Vec<u16> = (0..ns).map(|k| demo_la(start + k as f64 * dts)).collect();
-                        crate::trig::decode_la(m, &lines, dts).unwrap_or_default().iter().find(|p| crate::trig::matches(m, p)).map(|p| p.t1)
+                        crate::trig::points(m, &crate::trig::decode_la(m, &lines, dts).unwrap_or_default()).first().copied()
                     }
                     // LA line: 0 / 1 samples of the demo line, the same trigger on them at level 0.5
                     Some(n) => {
@@ -710,7 +873,7 @@ impl Source {
                     let words = (0..nl).map(|k| demo_la(ttrig + jitter + t_first + k as f64 * dl)).collect();
                     crate::ui::la::LaRec { words: std::sync::Arc::new(words), t0: t_first, dt: dl }
                 });
-                Some(Record { t0: t_first, dt, ch: chs, triggered, partial: false, raw: None, la })
+                Some(Record { t0: t_first, dt, ch: chs, triggered, partial: false, raw: None, la, pairs: false })
             }
             Source::Replay { words, xinc, yinc, yorg, yref } => {
                 let volts: Vec<f32> = words.iter().map(|&w| ((w as f64 - *yorg - *yref) * *yinc) as f32).collect();
@@ -740,7 +903,7 @@ impl Source {
                 }
                 let mut chs: [Vec<f32>; NCH] = Default::default();
                 chs[0] = v;
-                Some(Record { t0: t_first, dt, ch: chs, triggered, partial: false, raw: None, la: None })
+                Some(Record { t0: t_first, dt, ch: chs, triggered, partial: false, raw: None, la: None, pairs: false })
             }
             Source::Live { .. } | Source::Hw { .. } => None, // handled above
         }
@@ -842,20 +1005,22 @@ impl Phosphor {
     /// Draws a record channel into the map: every segment between two samples adds `w` to the pixels it covers,
     /// so the brightness follows the dwell time of the trace like on an analog/digital-phosphor screen. Display
     /// options: dots (`Model::dots`, one pixel per sample) and per-sample brightness weights 0..1 (Z input).
+    /// `pairs` (`Record::pairs`): with dots, each min/max pair is one vertical span, since it stands for every sample
+    /// between its extremes; two dots would drop the edges of a slow time base.
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_ex(&mut self, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>) {
+    pub fn draw_ex(&mut self, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>, pairs: bool) {
         let (pw, ph) = (self.w, self.h);
-        draw_trace(&mut self.map[c], pw, ph, 0, c, m, view, rec_t0, dt, v, w, z);
+        draw_trace(&mut self.map[c], pw, ph, 0, c, m, view, rec_t0, dt, v, w, z, pairs);
     }
 }
 
 /// `Phosphor::draw_ex` on one band of one channel's map (`pw` x `ph`, row-major): `band` holds the rows `r_lo` ..
 /// `r_lo + band.len() / pw` (the whole map: `r_lo` 0).
 #[allow(clippy::too_many_arguments)]
-pub fn draw_trace(band: &mut [u16], pw: usize, ph: usize, r_lo: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>) {
+pub fn draw_trace(band: &mut [u16], pw: usize, ph: usize, r_lo: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>, pairs: bool) {
     let (b0, b1) = (r_lo as i32, (r_lo + band.len() / pw.max(1)).min(ph) as i32);
     let wi = pw as i32;
-    trace_columns(pw, ph, c, m, view, rec_t0, dt, v, w, z, (0, wi), |cx, r0, r1, w| {
+    trace_columns(pw, ph, c, m, view, rec_t0, dt, v, w, z, pairs, (0, wi), |cx, r0, r1, w| {
         for r in r0.max(b0)..=r1.min(b1 - 1) {
             let idx = ((r - b0) * wi + cx) as usize;
             band[idx] = band[idx].saturating_add(w);
@@ -865,9 +1030,11 @@ pub fn draw_trace(band: &mut [u16], pw: usize, ph: usize, r_lo: usize, c: usize,
 
 /// The pixels of a trace on a `pw` x `ph` map, column by column: `put(column, first row, last row, weight)` for every
 /// vertical span (rows within the map, first <= last), only for the columns `cols.0 .. cols.1`. Line segments from
-/// point to point, or one pixel a point with `Model::dots`; `z` scales the weight per point (Z input).
+/// point to point, or one pixel a point with `Model::dots`; `z` scales the weight per point (Z input). With `pairs`
+/// (`v` holds min/max pairs) and dots, each pair is one span from its minimum to its maximum over the columns it
+/// covers: two dots would lose the edges of a square at slow time bases.
 #[allow(clippy::too_many_arguments)]
-pub fn trace_columns(pw: usize, ph: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>, cols: (i32, i32), mut put: impl FnMut(i32, i32, i32, u16)) {
+pub fn trace_columns(pw: usize, ph: usize, c: usize, m: &Model, view: (f32, f32), rec_t0: f64, dt: f64, v: &[f32], w: u16, z: Option<&[f32]>, pairs: bool, cols: (i32, i32), mut put: impl FnMut(i32, i32, i32, u16)) {
     let (wd, ht) = (pw as f32, ph as f32);
     let tdiv = view.0 as f64;
     let vdelay = view.1 as f64;
@@ -880,8 +1047,32 @@ pub fn trace_columns(pw: usize, ph: usize, c: usize, m: &Model, view: (f32, f32)
     let y_of = |val: f32| -> f32 { cy - (val + ch.offset) / vpd * ppd_y };
     let hi = ph as i32;
     let (c_lo, c_hi) = (cols.0.max(0), cols.1.min(pw as i32));
-    let mut prev: Option<(f32, f32)> = None;
     let w0 = w;
+    let wt = |k: usize| match z {
+        Some(z) => (w0 as f32 * z.get(k).copied().unwrap_or(0.0).clamp(0.0, 1.0)).round() as u16,
+        None => w0,
+    };
+    if m.dots && pairs {
+        for (j, p) in v.chunks(2).enumerate() {
+            let (lo, hi_) = p.iter().copied().filter(|y| y.is_finite()).fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), y| (a.min(y), b.max(y)));
+            if lo > hi_ {
+                continue;
+            }
+            // the pair covers points 2j and 2j+1: every column it touches, from the minimum to the maximum
+            let k = 2 * j;
+            let (x0, x1) = (x_of(k).floor() as i32, x_of(k + p.len() - 1).floor() as i32);
+            let (ya, yb) = (y_of(lo), y_of(hi_));
+            let r0 = (ya.min(yb).round() as i32).max(0);
+            let r1 = (ya.max(yb).round() as i32).min(hi - 1);
+            if r0 <= r1 {
+                for x in x0.max(c_lo)..=x1.min(c_hi - 1) {
+                    put(x, r0, r1, wt(k));
+                }
+            }
+        }
+        return;
+    }
+    let mut prev: Option<(f32, f32)> = None;
     for (k, &val) in v.iter().enumerate() {
         if !val.is_finite() {
             prev = None;
@@ -1117,6 +1308,45 @@ pub fn periodic(v: &[f32], dt: f64) -> Option<f64> {
     Some((rises[rises.len() - 1] - rises[0]) as f64 / gaps.len() as f64 * 2.0 * dt)
 }
 
+/// The trigger level halfway through a signal: between top and base where it has flat levels (a spike or overshoot
+/// moves the extremes, not these), else between the extremes. Used by level 50 % and the auto set-up.
+pub fn mid_level(s: &Stats) -> f32 {
+    if s.top > s.base {
+        (s.top + s.base) / 2.0
+    } else {
+        (s.vmax + s.vmin) / 2.0
+    }
+}
+
+/// Noise of a two-level signal (square, logic) as a standard deviation: from the median absolute deviation of each
+/// half about its median (split halfway between the extremes), so the samples on the edges do not count. None when the
+/// halves are not clearly apart (6 sigma), as for a sine or a triangle, whose halves spread by the signal itself.
+/// `stats`' histogram top and base are no help here: noise of a fifth of the swing flattens their modes.
+pub fn flat_noise(v: &[f32]) -> Option<f32> {
+    let f: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+    let (lo, hi) = f.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    if f.len() < 32 || hi <= lo {
+        return None;
+    }
+    let mid = (lo + hi) / 2.0;
+    let median = |v: &mut Vec<f32>| {
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    };
+    let half = |up: bool| -> Option<(f32, f32)> {
+        let mut h: Vec<f32> = f.iter().copied().filter(|&x| (x >= mid) == up).collect();
+        if h.len() < 8 {
+            return None;
+        }
+        let m = median(&mut h);
+        let mut dev: Vec<f32> = h.iter().map(|x| (x - m).abs()).collect();
+        Some((m, 1.4826 * median(&mut dev)))
+    };
+    let ((m1, s1), (m0, s0)) = (half(true)?, half(false)?);
+    let sigma = s1.max(s0);
+    (m1 - m0 > 6.0 * sigma).then_some(sigma)
+}
+
 /// The end of an auto set-up: `found` = channel, levels, period; the rest of the set-up stays.
 pub fn place(m: &mut Model, found: &[(usize, Stats, f64)]) {
     // one horizontal band per channel (8 div / n), signal fills 80 % of its band; in a split plot per window: n and the
@@ -1142,7 +1372,7 @@ pub fn place(m: &mut Model, found: &[(usize, Stats, f64)]) {
     }
     if let Some((c, s, _)) = found.first() {
         m.trig_src = *c;
-        m.trig_level = (s.vmax + s.vmin) / 2.0;
+        m.trig_level = mid_level(s);
         m.slope = Slope::Rise;
         m.trig_mode = TrigMode::Auto;
         m.active = *c;
@@ -1161,6 +1391,38 @@ pub fn place(m: &mut Model, found: &[(usize, Stats, f64)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Break it catches: level 50 % on the extremes, which a spike or overshoot pulls off the middle of the swing
+    #[test]
+    fn mid_level_ignores_spikes_on_a_square_and_takes_the_extremes_of_a_sine() {
+        let mut sq: Vec<f32> = (0..4000).map(|k| if (k / 500) % 2 == 0 { 0.0 } else { 5.0 }).collect();
+        for k in [499, 1499, 2499] {
+            sq[k + 1] = 9.0;
+        }
+        sq[1000] = -2.0;
+        let s = stats(&sq, 1e-6);
+        assert_eq!((s.vmax + s.vmin) / 2.0, 3.5);
+        assert!((mid_level(&s) - 2.5).abs() < 0.1, "{}", mid_level(&s));
+        let sine: Vec<f32> = (0..4000).map(|k| 1.0 + (k as f32 / 400.0 * std::f32::consts::TAU).sin()).collect();
+        assert!((mid_level(&stats(&sine, 1e-6)) - 1.0).abs() < 0.01);
+    }
+
+    // Break it catches: noise reject chosen for a clean sine (its halves spread by the signal) or missed on a noisy square
+    #[test]
+    fn flat_noise_of_two_levels_only() {
+        let mut x = 5u32;
+        let mut r = || {
+            x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+            (x >> 8) as f32 / (1 << 24) as f32 - 0.5
+        };
+        let sq: Vec<f32> = (0..4000).map(|k| if (k / 500) % 2 == 0 { 0.0 } else { 5.0 } + 1.2 * r()).collect();
+        let s = flat_noise(&sq).unwrap();
+        // uniform noise of sigma 0.35; the MAD estimate is exact for normal noise and reads 0.44 here
+        assert!((0.3..0.5).contains(&s), "{}", s);
+        let sine: Vec<f32> = (0..4000).map(|k| (k as f32 / 400.0 * std::f32::consts::TAU).sin()).collect();
+        assert_eq!(flat_noise(&sine), None);
+        assert_eq!(flat_noise(&[1.0; 100]), None);
+    }
 
     #[test]
     fn periodic_takes_a_sine_and_refuses_noise_and_dc() {
