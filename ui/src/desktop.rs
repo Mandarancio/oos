@@ -140,7 +140,7 @@ impl PointerState {
 pub fn run(mut ui: Ui, args: &[String]) {
     ui.desktop_panel = Some(true);
     let opts = WindowOptions { resize: true, scale: Scale::X1, scale_mode: ScaleMode::AspectRatioStretch, ..WindowOptions::default() };
-    let mut win = match Window::new("OOS Plus — F6: Hardware controls", ui::W as usize, ui::H as usize, opts) {
+    let mut win = match Window::new("OOS — F6: Hardware controls", ui::W as usize, ui::H as usize, opts) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("oos-ui: window: {}", e);
