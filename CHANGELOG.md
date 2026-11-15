@@ -124,6 +124,8 @@ Fixed:
   the settings before, e.g. twice the amplitude after the memory depth was changed: it is left out.
 - A measurement of a large record (more than 262 k points) no longer shows "not available" while it is computed in
   the background: the last value stays until the new one is there.
+- SCPI over the raw socket answered nothing when the client closed its side after the command
+  (`echo "*IDN?" | nc <scope> 5555`); the lines it sent are answered again.
 - From PR #8's second round (W4R): SIM no longer overwrites a loaded reference or switches channels off; math with
   a reference as source fits its scale; setups keep how references look; references with no channel shown get a volt
   axis; the power page says why it has no numbers (no signal, no current probe, no whole cycle) instead of zeros;
