@@ -10,7 +10,9 @@ use crate::model::*;
 use crate::wave::*;
 use crate::board::{board, Board};
 
+mod analysers;
 mod analysis;
+mod scroll;
 mod measure_pairs;
 mod bus;
 mod busview;
@@ -268,6 +270,8 @@ pub const PAIRS_N: usize = tools::PAIRS.len();
 pub fn pair_short_name(k: usize) -> &'static str {
     tools::PAIRS[k.min(PAIRS_N - 1)].0
 }
+
+pub(crate) use analysers::{scpi_views, stored_views};
 
 /// Clock recovery of the eye for the measurement modules: samples per UI and the recovered clock.
 pub fn eye_infer(v: &[f32], dt: f64, rate: Option<f64>) -> Result<(f64, oos_dsp::eye::Clock), String> {
@@ -626,7 +630,7 @@ enum Item {
     Dots,
     /// Display > Bottom bar: Cards or Compact (`Model::bar_compact`)
     BottomBar,
-    /// System > Features: one row per feature of `features::FEATURES`, one per decoder of `PROTOS`
+    /// System > Features: one row per feature of `features::features()`, one per decoder of `PROTOS`
     FeatOn(usize),
     FeatDec(usize),
     /// Display > Monitor view (ui/monitor.rs)
@@ -968,6 +972,8 @@ enum Drag {
     CursorD,
     /// the bus, by its vertical position
     Bus,
+    /// a list: by its content or its scroll bar (ui/scroll.rs)
+    Scroll(scroll::List, scroll::Grip),
 }
 
 struct Pinch {
@@ -5863,8 +5869,9 @@ impl Ui {
             disp.extend([NavBack, NavFwd]);
         }
         // System > Features: what is left out is not offered
-        let ana: Vec<Item> = [Open(MenuId::Spectrum), Open(MenuId::Eye), Open(MenuId::Power), Open(MenuId::Bode), Open(MenuId::BwTest), IdentifyAct, Open(MenuId::Magnetic), Open(MenuId::Inverter), Open(MenuId::Dpt)]
-            .into_iter()
+        let ana: Vec<Item> = analysers::ANALYSERS
+            .iter()
+            .flat_map(|a| a.start())
             .filter(|it| !matches!(it, Open(m) if self.menu_left_out(*m)))
             .collect();
         // the generator page only on models with one (S models), the LA only with the port
@@ -9414,12 +9421,18 @@ impl Ui {
         } else {
             None
         };
+        // a finger on a list that scrolls (the measurement page, the Results pane, a table) moves it
+        let grip = if ph == Phase::Down && !self.m.touch_lock && self.dialog.is_none() && !self.power_dlg && self.wlan.osk.is_none() { self.scroll_grip(x, y) } else { None };
         let t = &mut self.touch;
         match ph {
             Phase::Down => {
                 let sd = if self.m.zoom { self.m.zdelay } else { self.m.delay };
                 *t = TouchState { down: true, x0: x, y0: y, x, y, t0: self.now, held: false, drag: Drag::None, start_offset: 0.0, start_delay: sd, start_level: self.m.trig_level, start_cur: 0.0, win: self.cur_win };
                 if self.m.touch_lock || self.dialog.is_some() || self.power_dlg || self.wlan.osk.is_some() {
+                    return;
+                }
+                if let Some((l, g)) = grip {
+                    t.drag = Drag::Scroll(l, g);
                     return;
                 }
                 if let Some((ox, oy, prev)) = full_from {
@@ -9449,6 +9462,11 @@ impl Ui {
                 }
                 t.x = x;
                 t.y = y;
+                if let Drag::Scroll(l, g) = t.drag {
+                    let y0 = t.y0;
+                    self.scroll_move(l, g, y0, y);
+                    return;
+                }
                 if t.drag == Drag::ViewEdge {
                     let (x0, dx, dy) = (t.x0, x - t.x0, y - t.y0);
                     match self.view_swipe(x0, dx, dy) {
@@ -9707,12 +9725,15 @@ impl Ui {
                     }
                     return;
                 }
-                if was.1 == Drag::None || was.1 == Drag::Pending || was.1 == Drag::ViewEdge {
-                    if (x - was.2).abs() < 16 && (y - was.3).abs() < 16 {
+                // a press on a list that did not move it is a tap on what is under the finger
+                if let Drag::Scroll(_, g) = was.1 {
+                    if matches!(g, scroll::Grip::Content { .. }) && (x - was.2).abs() < 16 && (y - was.3).abs() < scroll::SLOP {
                         self.tap(was.2, was.3);
-                    } else {
-                        self.pane_swipe(was.2, was.3, y);
                     }
+                    return;
+                }
+                if (was.1 == Drag::None || was.1 == Drag::Pending || was.1 == Drag::ViewEdge) && (x - was.2).abs() < 16 && (y - was.3).abs() < 16 {
+                    self.tap(was.2, was.3);
                 }
             }
         }

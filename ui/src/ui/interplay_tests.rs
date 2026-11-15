@@ -77,7 +77,7 @@ fn draw_path_bottom_bar_and_features_leave_the_acquisition() {
         u.adjust(it, 1);
         u.step(0.05);
     }
-    for i in 0..features::FEATURES.len() {
+    for i in 0..features::features().len() {
         u.adjust(Item::FeatOn(i), 1);
         u.step(0.05);
         u.adjust(Item::FeatOn(i), 1);

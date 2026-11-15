@@ -17,6 +17,10 @@ New:
   filled. Selected lists what is on with Remove, Set and Clear all. Analysis > Measure in the start menu opens this
   page (with Back), as the Measure button and key do. The settings are in named groups: Sources, Measure over,
   Display, Parameters, More.
+- Lists scroll by touch: the measurement page, the Results pane and the event / search / segment tables have a scroll
+  bar (drag the thumb, or press the track to jump there) and follow a finger drawn over them; a press that does not
+  move is still a tap. The Up / Down buttons are gone. Fixed: folding a group of the measurement page after scrolling
+  left the list past its end with no way back; a list's position is now always kept in range.
 - Measurements are modules (`ui/src/measures`, docs/measurement-modules.md): a module gives its measurements' tiles
   (name, description, mark, unit, sources, category and group) and computes their values on the worker thread; one
   line registers it. The 83 analysis measurements moved into nine modules (NRZ rate, jitter & eye, power, rails,
@@ -32,6 +36,10 @@ New:
 - Decoders can be left out of a build: every optional decoder is a Cargo feature (`dec-<file>`, all on by default),
   `OOS_DECODERS="usb dcc"` or `OOS_DECODERS_OFF="avionics"` with ui/build.sh and boot/build-dev-image.sh. The seven
   core decoders are always in. Without the optional ones the scope binary is 260 KB smaller. Suggested by rdtsc.
+- Analyser pages register the same way (`ui/src/ui/analysers.rs`, docs/analyser-modules.md): the start menu, System
+  > Features, the view bar and its menu, SCPI `:VIEW`, the `view` of setups, which record a page needs, computing and
+  drawing ask one registry instead of eight lists. Every page is checked the same way by the tests; the pages look
+  and compute as before, pixel for pixel.
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`

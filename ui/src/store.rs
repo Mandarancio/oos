@@ -794,7 +794,7 @@ pub fn set(m: &mut Model, k: &str, v: &str) -> Result<(), String> {
         }
         // setups before the Layout mode: true = Waveform, false = Mirror
         "hdmi_wave" => m.hdmi = if p_bool(v)? { HdmiMode::Waveform } else { HdmiMode::Mirror },
-        "view" => m.view = p_enum(v, &[AView::Scope, AView::Spectrum, AView::Eye, AView::Power, AView::Bode, AView::Magnetic, AView::Inverter, AView::Dpt])?,
+        "view" => m.view = p_enum(v, &crate::ui::stored_views())?,
         "bode" => {
             // the address is the rest of the line: it may be empty
             let w: Vec<&str> = v.trim().splitn(8, char::is_whitespace).collect();

@@ -21,18 +21,16 @@ pub(super) struct Feature {
 /// Decoders on a page of System > Features > Decoders.
 pub(crate) const DEC_PAGE: usize = 18;
 
-pub(super) const FEATURES: [Feature; 10] = [
-    Feature { id: "spectrum", name: "Spectrum", view: Some(AView::Spectrum), menu: Some(MenuId::Spectrum) },
-    Feature { id: "eye", name: "Eye", view: Some(AView::Eye), menu: Some(MenuId::Eye) },
-    Feature { id: "power", name: "Power", view: Some(AView::Power), menu: Some(MenuId::Power) },
-    Feature { id: "bode", name: "Bode", view: Some(AView::Bode), menu: Some(MenuId::Bode) },
-    Feature { id: "bwtest", name: "Bandwidth test", view: Some(AView::Step), menu: Some(MenuId::BwTest) },
-    Feature { id: "magnetic", name: "Magnetic", view: Some(AView::Magnetic), menu: Some(MenuId::Magnetic) },
-    Feature { id: "inverter", name: "Inverter", view: Some(AView::Inverter), menu: Some(MenuId::Inverter) },
-    Feature { id: "dpt", name: "Double pulse", view: Some(AView::Dpt), menu: Some(MenuId::Dpt) },
-    Feature { id: "sim", name: "SIM", view: None, menu: Some(MenuId::Sim) },
-    Feature { id: "load", name: "Load file", view: None, menu: None },
-];
+/// The features: every analyser page (`analysers::ANALYSERS`, in its order), then the simulator and Load file.
+pub(super) fn features() -> &'static [Feature] {
+    static F: std::sync::OnceLock<Vec<Feature>> = std::sync::OnceLock::new();
+    F.get_or_init(|| {
+        let pages = super::analysers::ANALYSERS.iter().map(|a| Feature { id: a.feature().0, name: a.feature().1, view: Some(a.view()), menu: Some(a.menu()) });
+        pages
+            .chain([Feature { id: "sim", name: "SIM", view: None, menu: Some(MenuId::Sim) }, Feature { id: "load", name: "Load file", view: None, menu: None }])
+            .collect()
+    })
+}
 
 impl Ui {
     /// Whether the feature `id` is offered.
@@ -42,12 +40,12 @@ impl Ui {
 
     /// Whether the menu `id` is left out (System > Features).
     pub(super) fn menu_left_out(&self, id: MenuId) -> bool {
-        FEATURES.iter().any(|f| f.menu == Some(id) && !self.feature_on(f.id))
+        features().iter().any(|f| f.menu == Some(id) && !self.feature_on(f.id))
     }
 
     /// Whether the analyser page `v` is left out.
     pub(super) fn view_left_out(&self, v: AView) -> bool {
-        FEATURES.iter().any(|f| f.view == Some(v) && !self.feature_on(f.id))
+        features().iter().any(|f| f.view == Some(v) && !self.feature_on(f.id))
     }
 
     /// Whether the decoder `p` is offered.
@@ -84,7 +82,7 @@ impl Ui {
 
     pub(super) fn features_items(&self, id: MenuId) -> Option<Vec<Item>> {
         match id {
-            MenuId::Features => Some((0..FEATURES.len()).map(Item::FeatOn).chain(std::iter::once(Item::Open(MenuId::Decoders(0)))).collect()),
+            MenuId::Features => Some((0..features().len()).map(Item::FeatOn).chain(std::iter::once(Item::Open(MenuId::Decoders(0)))).collect()),
             // a page of decoders, the next page after them (the dialog holds about twenty rows)
             MenuId::Decoders(k) => {
                 let (a, b) = (k * DEC_PAGE, ((k + 1) * DEC_PAGE).min(PROTOS.len()));
@@ -102,7 +100,7 @@ impl Ui {
 
     pub(super) fn features_label(it: Item) -> Option<&'static str> {
         match it {
-            Item::FeatOn(i) => FEATURES.get(i).map(|f| f.name),
+            Item::FeatOn(i) => features().get(i).map(|f| f.name),
             Item::FeatDec(i) => PROTOS.get(i).map(|p| p.name()),
             Item::Open(MenuId::Features) => Some("Features"),
             Item::Open(MenuId::Decoders(0)) => Some("Decoders"),
@@ -113,7 +111,7 @@ impl Ui {
 
     pub(super) fn features_value(&self, it: Item) -> Option<String> {
         let on = match it {
-            Item::FeatOn(i) => self.feature_on(FEATURES.get(i)?.id),
+            Item::FeatOn(i) => self.feature_on(features().get(i)?.id),
             Item::FeatDec(i) => self.proto_on(*PROTOS.get(i)?),
             _ => return None,
         };
@@ -126,7 +124,7 @@ impl Ui {
 
     pub(super) fn features_adjust(&mut self, it: Item, _d: i32) -> bool {
         let (list, key, name) = match it {
-            Item::FeatOn(i) => match FEATURES.get(i) {
+            Item::FeatOn(i) => match features().get(i) {
                 Some(f) => (&mut self.sys.features_off, f.id.to_string(), f.name.to_string()),
                 None => return true,
             },
@@ -176,14 +174,14 @@ mod tests {
         assert!(has(&u, Item::Open(MenuId::Magnetic)) && has(&u, Item::Open(MenuId::Sim)));
         // Magnetic off while it is shown: gone from the start menu, the page back to the scope
         u.m.view = AView::Magnetic;
-        let i = FEATURES.iter().position(|f| f.id == "magnetic").unwrap();
+        let i = features().iter().position(|f| f.id == "magnetic").unwrap();
         u.select_option(Item::FeatOn(i), "Off");
         assert!(!has(&u, Item::Open(MenuId::Magnetic)));
         assert_eq!(u.m.view, AView::Scope);
         // SIM and Load file: gone from the start menu and the Reference menu
         assert!(u.items(MenuId::Ref).contains(&Item::RefLoad));
         for id in ["sim", "load"] {
-            let i = FEATURES.iter().position(|f| f.id == id).unwrap();
+            let i = features().iter().position(|f| f.id == id).unwrap();
             u.select_option(Item::FeatOn(i), "Off");
         }
         assert!(!has(&u, Item::Open(MenuId::Sim)));
