@@ -3524,6 +3524,11 @@ impl Ui {
         }
     }
 
+    /// The refs that are shown over the live channels, in slot order.
+    pub(super) fn shown_refs(&self) -> Vec<usize> {
+        (0..NREF).filter(|&i| self.refs[i].as_ref().is_some_and(|r| r.on)).collect()
+    }
+
     /// (V/div, offset, unit, colour) of the ref that labels the volt axis when no channel is shown here: the selected
     /// ref, else the first one this window holds.
     fn ref_axis_source(&self) -> Option<(f32, f32, &'static str, Rgb)> {
