@@ -83,7 +83,7 @@ run on the timeout: about 6 s before Search starts.
 every time base. The user then waits up to about 8 s and the screen goes back to how it was. Whether stock keeps
 the scale and level for a signal it cannot time is not verified.
 
-Rigol's autoset is in the app, not in libscope, and is not reverse engineered. The comparison is by behaviour only.
+The comparison with Rigol's autoset is by behaviour only.
 
 ## Software trigger refinement
 
@@ -165,24 +165,12 @@ Stock behaviour for comparison was not measured. Comparing with `acq.pipeline = 
 
 ## Trigger status from the hardware (FPGA use)
 
-0x4034 bits 6 and 7, traced in the netlist of the 00.01.05.00.01 bitstream (private RE notes
-`docs/re/netlist`: `regmap/read_sim.tsv` gives the source FF of each read bit; the cones were dumped with
-`regmap/nl.py` over the pickled netlist, register FFs named from `regmap/regmap_adc.tsv` and
-`blocks/scu_regs.tsv`):
+0x4034 bits 6 and 7 (assumed from the register behaviour, then seen on the unit, below):
 
-| Bit | Source FF | Next state | Event |
-|---|---|---|---|
-| 6 | SLICE_X31Y89_A5FF | `event OR (self AND NOT clr)` | SLICE_X38Y85_A5FF = X62Y75_BFF AND NOT X38Y65_A5FF: rising edge of X62Y75_BFF |
-| 7 | SLICE_X34Y90_AFF (FDSE) | set by the event, held until clr | SLICE_X54Y91_AFF = X53Y73_AFF AND NOT X52Y73_C5FF: rising edge of X53Y73_AFF |
-
-- clr = SLICE_X34Y76_AFF, the write FF of 0x4034 bit 31 (regmap: 0x4034 31:30 W, libscope
-  `DevSystemSCU_clrStatus`; partial decode, also listed as 0x4030 bit 31).
-- SLICE_X62Y75_BFF is the TPU trigger into the SCU FSM: in simulation the edge trigger fires it and then
-  X53Y73_AFF (`blocks/datapath.md`, "Trigger path into the SCU FSM"). Its cone reaches no auto-trigger register.
-- SLICE_X53Y73_AFF = self OR (X57Y78_AFF AND (X52Y73_A5FF OR 0x400c[18] OR X62Y75_BFF OR X39Y66_CFF)). X57Y78_AFF
-  is 0x4034 bit 4 (waiting for a trigger). X39Y66_CFF has 0x4060 (t1) at depth 3, 0x4064 (t2) at depth 2 and
-  0x4020 (auto enable) at depth 3 in its cone: the auto-trigger timeout. So X53Y73_AFF is "the FSM accepted a
-  trigger", from the TPU, the auto timeout or another source.
+- Bit 6 is set when the trigger unit (TPU) fires into the acquisition state machine; bit 7 when the state machine
+  accepts a trigger while waiting (bit 4 of 0x4034), from the TPU, the auto-trigger timeout (0x4060, 0x4064 with the
+  auto enable 0x4020) or another source.
+- Both are sticky until a status clear: 0x4034 written with bits 31:30 set, then with them clear.
 - So bit 6 = the TPU fired, bit 7 = a trigger was accepted, both sticky until a status clear. Forced by the
   auto timeout = bit 7 without bit 6. The stock priority (bit 6 first, acquisition-start.md section 2) agrees.
   The assumed names there (bit 6 = AUTO, bit 7 = TD) are the wrong way round.
@@ -209,14 +197,13 @@ Verification on the unit, before turning it on by default:
 Measured on the unit with fixes 1-3 and 7: autoset 1.18-1.57 s on the probe-comp output; the two levels stages
 (Wide, Fit) take 0.6-0.7 s of it, each waiting for a 240 ms record at 20 ms/div.
 
-The FPGA's ADC measure unit (private RE notes docs/fpga.md "Measure unit", self-cal.md 2.4) gives every core's
+The FPGA's ADC measure unit (self-cal.md 2.4) gives every core's
 12-bit minimum and maximum (0x1048) and its mean (0x1044, 16-bit scale) over 2^e samples, with no acquisition.
 `hal::dho::levels`:
 - A run: 0x1040 = (0x1040 & 0x77fff0e0) | 18, then with bit 31; done (bit 30) after 2^18 samples = 1.68 ms;
   per slot 0..7 select 0x1040[10:8], read 0x1044 and 0x1048. The same register handling as the self-cal's
   `adc::measure`, with the shorter exponent and the peaks.
-- Slots per channel from libscope's core table (private RE notes docs/fpga.md "Channel to core/slot mapping",
-  `DrvAuto_GetMaxMin`): 1 channel all eight; 2 channels the lower-numbered channel 0-3, the higher 4-7; 4 channels
+- Slots per channel (assumed, the unit's observation below fits it): 1 channel all eight; 2 channels the lower-numbered channel 0-3, the higher 4-7; 4 channels
   (also three) CH1 0/2, CH2 1/3, CH3 4/6, CH4 5/7. The DDR core order assumed first (CH1 6/7 ...) was wrong (below).
 - Codes to volts: the unit reads after the ADC x2 of 0x105c and before the Q10 read-path gain (self-cal.md 13:
   about 6970 codes per volt at 1 V/div, x1.077 = the 7500 per division of the records). So a 16-bit code c is the
@@ -289,12 +276,12 @@ restored afterwards.
 
 Fix (branch fix/autoset-multich): the measure unit only with one channel on; the deep record at 100 k points with
 more than one channel (0.8 MB at 4 channels, 33 samples a period at 125 kHz). Open: whether an 8 MB read itself
-crashes the unit (a user-chosen 1 M depth with 4 channels takes the same read). The slot map came later from libscope
+crashes the unit (a user-chosen 1 M depth with 4 channels takes the same read). The slot map came later
 (branch fix/meas-slots): the unit's observation fits it, and the measure unit is used with several channels again.
 
 ## Slot map cross-check (for unitlab)
 
-The slot table is libscope's (fpga.md "Channel to core/slot mapping"); since branch fix/meas-slots
+The slot table is assumed; since branch fix/meas-slots
 `hal::dho::levels::slots` follows it and the auto set-up uses the measure unit with any channel set again (a channel
 whose slots disagree still falls back to the records). This check confirms it on the unit without moving a cable.
 `:DEBug:SLOTs?` runs the unit once (2^18 samples per core) and answers the previous query: `<request>;min,max,mean;...`

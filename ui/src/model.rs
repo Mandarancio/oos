@@ -1117,7 +1117,7 @@ pub struct Model {
     /// the offsets of the interleaved ADC cores taken off in software (`board::dho::cores`; Acquire > ADC cores)
     pub cores: bool,
     pub avg_count: u32,
-    /// Average mode: the FPGA averages (docs/fork/specs/01-hw-averaging.md) where the board can (`Board::avg_hw`), else
+    /// Average mode: the FPGA averages where the board can (`Board::avg_hw`), else
     /// the software average; experimental, not verified on the unit
     pub avg_hw: bool,
     /// segmented recording: records per RUN/SINGLE (0 = off), browsed with the history afterwards

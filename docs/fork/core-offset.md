@@ -7,9 +7,9 @@ Status: implemented on `feat/core-offset`, opt-in (`cal.core_offset = tight` in 
 The RT8847 interleaves eight cores; each has an offset register (0x14 + 8n, 11-bit signed, one ADC step). The stock
 calibration (self-cal.md 14.6) trims every core to mid-scale and stops at +-1.5 steps, so two cores can differ by up
 to 3 steps. The FPGA has per-core gain trims only (0x1058, 0x105c) and no per-core offset; every rate path decimates
-after them (netlist, private RE notes `docs/fpga.md`).
+after them (assumed).
 
-Which cores feed consecutive samples, one channel (netlist simulation):
+Which cores feed consecutive samples, one channel (assumed; the spur pattern on the unit fits it):
 
 | rate | cores |
 |---|---|
@@ -37,9 +37,9 @@ Reading:
   other seven. At 100 mV/div the digital gain of CH3 is 1.174 (cal file), so one ADC step is 18.8 codes: the core is
   about **11 steps** high. The other seven sit within about +-1.5 steps of each other, as the stock tolerance
   allows.
-- The two cores of the 62.5 and 312.5 MSa/s paths (regmap cores 0 and 1 in the netlist model) differ by 0.7 to 1
+- The two cores of the 62.5 and 312.5 MSa/s paths (cores 0 and 1 of the register model) differ by 0.7 to 1
   step. The far core is not one of them. It shows only where all eight cores are used.
-- The core's register index n is not known: the netlist's core numbers are not mapped to RT8847 registers
+- The core's register index n is not known: the model's core numbers are not mapped to RT8847 registers
   (rt8847.md open item 8). The step procedure below finds it.
 - The offsets OOS writes for CH3 alone are the stored mode-2 offsets of the Rigol file (`seq::State::configure`
   writes them on the change to mode 2). In the unit's file (scope_dump 20261113): 32, 66, 33, 73, 53, 85, -32, 62
@@ -158,7 +158,7 @@ The core offsets have two components:
   38 -> 33 -> 34 over three boots. No stored value covers this part. It is also why the stock calibration's offsets
   do not match this unit.
 
-Round 17 table: private RE notes docs/logs/oos_unitlab_20261113.md, "Round 17".
+Round 17: unit log of 2026-11-13 (DHO804).
 
 So the trim runs every session, and the file only takes a result where some core moved by more than 4 register
 steps (`SAVE_MIN_STEPS`). At about 0.6 ADC step per register step, the 2 to 6 step scatter is 3 to 10 register

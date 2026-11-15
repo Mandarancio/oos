@@ -212,7 +212,7 @@ impl Ui {
         self.operation_serial = self.operation_serial.wrapping_add(1);
         m.hw_stamp += 1;
         let stamp = m.hw_stamp;
-        // any channel set: the slots per channel follow libscope's core table (`levels::slots`); a channel whose slots
+        // any channel set: the slots per channel follow the core table (`levels::slots`); a channel whose slots
         // disagree falls back to the records (`auto_unit`)
         let unit = (unit_levels_on() && self.src.hw_levels(Some((stamp, stamp, UNIT_RUNS))).is_some()).then_some(Unit { id: stamp, tries: 1, since: self.now });
         self.auto = Some(AutoRun { id: self.operation_serial, back, stamp, unit, plan: Vec::new(), deep: false, best: [None; NCH], stage: Stage::Wide, records: self.records, since: self.now, fits: false, lv: [(0.0, 0.0); NCH], st: [Stats::default(); NCH], want: [false; NCH], period: [None; NCH], full: [0.0; NCH], swing: [0.0; NCH] });

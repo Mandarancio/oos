@@ -242,7 +242,7 @@ fn aux_out(a: AuxOut) -> auxout::AuxOut {
 }
 
 /// The count of a hardware average for the model and its settings `s`, None for the software average
-/// (docs/fork/specs/01-hw-averaging.md): Average mode with `Model::avg_hw`, a power-of-two count, ordinary triggered
+///: Average mode with `Model::avg_hw`, a power-of-two count, ordinary triggered
 /// records (not roll or scan, which average in software as in stock), no LA, no hardware segments (they record raw
 /// frames), and a record whose average segment fits the frame ring.
 fn hw_avg_count(m: &Model, s: &Settings) -> Option<u32> {
@@ -258,7 +258,7 @@ pub fn avg_hw_ok(m: &Model) -> bool {
     matches!(settings(m, false).mode, oos_hal::dho::acq::Mode::Average { .. })
 }
 
-/// How the FPGA average is read (spec 01, 6.1): running (default), or with OOS_HWAVG=hold a cumulative average of the
+/// How the FPGA average is read: running (default), or with OOS_HWAVG=hold a cumulative average of the
 /// count that is shown when complete and then cleared. The hardware test in docs/fork/unit-dho804.md decides.
 fn avg_kind() -> oos_hal::dho::avg::Kind {
     static K: std::sync::OnceLock<oos_hal::dho::avg::Kind> = std::sync::OnceLock::new();
@@ -406,7 +406,7 @@ fn core_trim(bar: &mut oos_hal::dho::bus::Bar1, state: &mut oos_hal::dho::seq::S
 }
 
 /// Hardware segments record ordinary triggered frames: not in roll or scan, not with the LA (its record layout and
-/// read are not worked out for them, spec 03 5.9).
+/// read are not worked out for them).
 fn hw_segments_ok(m: &Model) -> bool {
     slow_mode(m) == Slow::Off && !m.la_on()
 }
@@ -936,7 +936,7 @@ fn dvm_reading(raw: &oos_hal::dho::dvm::Raw, key: DvmKey, s: &Settings, gain: &[
 /// Arm the next batch before the decode of the current one (`seq::prearm`), so the decode is no longer dead time.
 /// `acq.prearm = on` in system.conf, or OOS_PREARM set (any value). Off by default: the stop of an acquisition armed
 /// ahead that is then not read (a settings change, the generator, self-cal, roll) is not verified on the unit yet
-/// (docs/fork/specs/10-transfer-efficiency.md).
+///.
 fn prearm_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -2199,7 +2199,7 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
     shared
 }
 
-/// A hardware segmented recording (docs/fork/specs/03-segmented-timestamps.md 3.2).
+/// A hardware segmented recording.
 #[cfg(target_os = "linux")]
 struct SegRun {
     /// `HwSeg::run` it belongs to

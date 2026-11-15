@@ -291,7 +291,7 @@ pub struct Early {
 /// Steps 2 and 3 ahead of the others, for the wait after the BOOT command.
 pub fn early_start(pll: &mut dyn PllPins, afe_bus: &mut dyn AfeBus, clock: &mut dyn Clock, progress: &mut dyn FnMut(u32)) -> Result<Early, String> {
     progress(2);
-    // the 50 ms of the stock driver between words are not needed by the chip; the last word (R0) starts its calibration
+    // the 50 ms of the stock system between words are not needed by the chip; the last word (R0) starts its calibration
     for w in pll_table()? {
         for (pin, v) in pll_edges(w) {
             pll.set(pin, v);

@@ -1,7 +1,6 @@
 # Upstream sync checklist
 
-Every merge of an upstream release into `dho804`. Policy and history: private RE notes `docs/oos-fork.md`, "Upstream
-sync". Nothing here touches the unit.
+Every merge of an upstream release into `dho804`. Nothing here touches the unit.
 
 1. Branch `sync/<version>` from `dho804`; `git merge upstream/main` (no rebase).
 2. Conflicts in `boot/build-dev-image.sh`: keep upstream's file and re-add the one line
@@ -40,7 +39,7 @@ sync". Nothing here touches the unit.
    speed test (`tools/device-test.py`, frame rate by graphics and monitor) needs the unit.
 9. `tools/plan-matrix.sh` with the old and the new `oos-fpgad`, `diff`: the register sequences must not change unless
    the merge meant to.
-10. Record the sync in `docs/fork/unit-dho804.md` and private RE notes `docs/oos-fork.md`; fast-forward `dho804`.
+10. Record the sync in `docs/fork/unit-dho804.md`; fast-forward `dho804`.
 
 ## What the guards protect
 

@@ -1434,7 +1434,7 @@ impl Scpi {
                 }
                 return Some(None);
             }
-            // OOS: :ACQuire:AVERages:HARDware ON|OFF (docs/fork/specs/01-hw-averaging.md)
+            // OOS: :ACQuire:AVERages:HARDware ON|OFF
             if kw(n0, "ACQuire") && nodes.len() == 3 && kw(nodes[1], "AVERages") && kw(nodes[2], "HARDware") {
                 if query {
                     return Some(t(if m.avg_hw { "1" } else { "0" }));
