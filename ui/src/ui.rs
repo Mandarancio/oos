@@ -2993,7 +2993,10 @@ impl Ui {
                     self.meas_want = true;
                     // raw deep reads: this raw record is the one to measure, even when pair records (held) follow
                     // before the worker is free; measuring the newest then measured a pair record (Mean NaN live)
-                    if crate::deepmeas::want(&self.m).is_some() {
+                    // (only a raw deep record: a clone of every record cost the screen rate, 26 instead of 27 frames a
+                    // second with GPU and HDMI Layout, unit 2026-11-15)
+                    let raw_deep = self.last[0].as_ref().and_then(|r| r.raw.as_ref()).is_some_and(|r| crate::deepmeas::deep_raw_frame(&r.frame));
+                    if raw_deep && crate::deepmeas::want(&self.m).is_some() {
                         self.meas_pending = self.last[0].clone();
                     }
                 } else {
