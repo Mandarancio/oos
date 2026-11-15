@@ -181,8 +181,7 @@ impl Ui {
     pub(super) fn draw_view_box(&self, cv: &mut Canvas) {
         let Some(r) = self.view_box() else { return };
         let f = self.fonts();
-        cv.round(r, 5, BTN_BORDER, 255);
-        cv.round(r.inset(1), 4, BTN, 255);
+        cv.framed(r, 5, 1, BTN_BORDER, 4, BTN);
         for i in 0..self.m.views {
             let c = Rect::new(r.x + 1 + NUM_W * i as i32, r.y + 1, NUM_W, r.h - 2);
             let on = i == self.m.view_cur;

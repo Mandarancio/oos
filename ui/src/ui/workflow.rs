@@ -622,7 +622,7 @@ impl Ui {
         if !self.load_slot_ask { return; }
         cv.blend(Rect::new(0, 0, W, H), rgb(0, 0, 0), 150);
         let r = Self::load_slot_box();
-        cv.round(r, 8, ACCENT, 255); cv.round(r.inset(2), 7, DLG_BG, 255);
+        cv.framed(r, 8, 2, ACCENT, 7, DLG_BG);
         cv.text_in(&self.fonts().lb, Rect::new(r.x, r.y + 16, r.w, 28), 1, "Load into", ACCENT);
         cv.text_in(&self.fonts().m, Rect::new(r.x, r.y + 46, r.w, 22), 1, "Choose a destination before opening the file.", DIM);
         for slot in 0..NREF {

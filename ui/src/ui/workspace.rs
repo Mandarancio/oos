@@ -823,8 +823,7 @@ impl Ui {
     }
     pub(super) fn workspace_draw(&self, cv: &mut Canvas) {
         if let Some(popup) = &self.workspace.popup {
-            cv.round(popup.rect, 5, BTN_BORDER, 255);
-            cv.round(popup.rect.inset(1), 4, BAR, 255);
+            cv.framed(popup.rect, 5, 1, BTN_BORDER, 4, BAR);
             for (index, (label, _)) in popup.rows.iter().enumerate() {
                 let r = Rect::new(popup.rect.x + 5, popup.rect.y + 4 + index as i32 * 30, popup.rect.w - 10, 30);
                 cv.set_clip(r); cv.text(&self.fonts().s, r.x + 7, r.y + 20, label, TEXT); cv.no_clip();

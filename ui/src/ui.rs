@@ -4556,8 +4556,7 @@ impl Ui {
         // drag feedback
         let tag = |cv: &mut Canvas, x: i32, y: i32, s: &str, col: Rgb| {
             let r = Rect::new(x, y, f.sb.width(s) + 20, 22);
-            cv.round(r, 5, LINE, 255);
-            cv.round(r.inset(1), 4, BAR, 255);
+            cv.framed(r, 5, 1, LINE, 4, BAR);
             cv.text_in(&f.sb, r, 1, s, col);
         };
         match self.touch.drag {
@@ -8669,8 +8668,7 @@ impl Ui {
         }
         let Some(d) = self.dlg_layout() else { return };
         let f = self.fonts();
-        cv.round(d.r, 8, ACCENT, 255);
-        cv.round(d.r.inset(2), 7, DLG_BG, 255);
+        cv.framed(d.r, 8, 2, ACCENT, 7, DLG_BG);
         let tcol = match self.menu_root() {
             MenuId::Channel(c) => CH_COLORS[c],
             _ => TEXT,
@@ -8883,8 +8881,7 @@ impl Ui {
         if self.power_dlg {
             cv.blend(self.scr.rect(), rgb(0, 0, 0), 160);
             let (r, [off, restart, cancel]) = self.pwr_layout();
-            cv.round(r, 8, ACCENT, 255);
-            cv.round(r.inset(2), 7, DLG_BG, 255);
+            cv.framed(r, 8, 2, ACCENT, 7, DLG_BG);
             cv.text_in(&f.lb, Rect::new(r.x, r.y + 18, r.w, 28), 1, "Power", ACCENT);
             cv.text_in(&f.m, Rect::new(r.x, r.y + 52, r.w, 24), 1, "Power key again or tap outside to cancel", DIM);
             for (b, t, c) in [(off, "Power off", RED), (restart, "Restart", ACCENT), (cancel, "Cancel", TEXT)] {
@@ -8902,8 +8899,7 @@ impl Ui {
             // wider for long lines at the larger text sizes
             let w = lines.iter().map(|l| f.m.width(l) + 40).max().unwrap_or(0).clamp(480, scr.w - 20);
             let r = scr.center(w, h);
-            cv.round(r, 8, ACCENT, 255);
-            cv.round(r.inset(2), 7, DLG_BG, 255);
+            cv.framed(r, 8, 2, ACCENT, 7, DLG_BG);
             for (i, l) in lines.iter().enumerate() {
                 let fnt = if i == 0 { &f.lb } else { &f.m };
                 cv.text_in(fnt, Rect::new(r.x, r.y + 20 + i as i32 * 30, r.w, 26), 1, l, if i == 0 { ACCENT } else { TEXT });
@@ -10168,8 +10164,7 @@ fn backed_text(cv: &mut Canvas, f: &Font, x: i32, y: i32, s: &str, col: Rgb) -> 
 
 /// Button: 2 px border, filled.
 fn btn(cv: &mut Canvas, r: Rect, fill: Rgb, border: Rgb) {
-    cv.round(r, 5, border, 255);
-    cv.round(r.inset(2), 4, fill, 255);
+    cv.framed(r, 5, 2, border, 4, fill);
 }
 
 fn chevron_down(cv: &mut Canvas, x: i32, y: i32, col: Rgb) {
@@ -11415,6 +11410,9 @@ mod tests {
         ui.close_menu();
         ui.open_menu(MenuId::Measure);
         same(&mut ui, "measure menu");
+        ui.close_menu();
+        ui.key(key::MEASURE);
+        same(&mut ui, "measure page");
         ui.close_menu();
         ui.m.zoom = true;
         ui.m.color_grade = true;
