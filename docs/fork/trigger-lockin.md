@@ -231,8 +231,10 @@ The FPGA's ADC measure unit (private RE notes docs/fpga.md "Measure unit", self-
 The auto set-up (hardware source) asks the acquisition thread for 24 runs (about 40 ms of signal, the full swing
 from about 25 Hz) at the wide scale once that scale is applied, rescales on clipping or less than 0.4 div and asks
 once more, then fits and goes to the search. Fallback to the record stages: no answer within 0.5 s, a channel
-without a usable reading, or still out of range after the second request. `autoset.levels = records` in
-system.conf (or OOS_AUTOSET_LEVELS=records) turns the unit off. The thread runs the unit while nothing is armed.
+without a usable reading, or still out of range after the second request. The unit is opt-in: `autoset.levels =
+unit` in system.conf (or OOS_AUTOSET_LEVELS=unit); by default the record stages find the levels. On a DHO924S
+(2026-11-15) the unit answered every request with the levels of an earlier signal. The thread runs the unit while
+nothing is armed.
 
 Verification on the unit:
 1. CH1 alone on the probe-comp output, `:AUToscale`: the UI log (`oos-ui auto: measure-unit levels`) shows about
@@ -330,7 +332,7 @@ the table is fixed.
 | 8 autoset noise reject, opt-in (Trigger > Auto noise rej.) | done, 417a81c |
 | 5 status from 0x4034 | verified on the unit 2026-11-13; default on in fix/autoset-multich |
 | 6 counter for the time base | dropped (team-lead, 2026-11-13): after fix 2 a search stage costs one record (tens of ms below 2 ms/div), while the counter needs a 0.25 s gate plus 0.1 s and its threshold (0x2200/0x2204) is not understood (counter.md) |
-| (a) autoset levels from the measure unit | done, on by default with the record stages as fallback; on-unit verification pending |
+| (a) autoset levels from the measure unit | done, opt-in (`autoset.levels = unit`): on the unit (2026-11-15) it answered with stale levels, so Auto missed a 5 MHz sine of 0.2 Vpp; the records are the default again |
 | autoset search in at most three records | done; on-unit timing pending |
 | F1 flicker | done: at minimum persistence the picture is graded against the per-frame maximum times the frames in it (`picture_ref` in ui.rs), so equal frames give equal brightness whatever the batch size. F2 (fixed picture window) not needed |
 

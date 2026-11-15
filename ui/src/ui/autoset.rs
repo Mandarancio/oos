@@ -44,15 +44,25 @@ const UNIT_RUNS: u32 = 24;
 const UNIT_GIVE_UP_S: f64 = 0.5;
 const UNIT_TRIES: u32 = 2;
 
-/// The auto set-up reads the levels with the FPGA's measure unit where the source has one, unless system.conf says
-/// `autoset.levels = records` (or OOS_AUTOSET_LEVELS=records).
+/// The auto set-up reads the levels with the FPGA's measure unit only when system.conf says `autoset.levels = unit`
+/// (or OOS_AUTOSET_LEVELS=unit); by default from the records, as before the fork. On the unit (DHO924S, 2026-11-15)
+/// the measure unit answered every request with the same levels, those of an earlier signal (-1.09..1.07 V for a 5 MHz
+/// sine of 0.2 Vpp), and Auto fitted the wrong scale. The tests run the unit path, which is what they check.
 fn unit_levels_on() -> bool {
+    if cfg!(test) {
+        return true;
+    }
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         let env = std::env::var("OOS_AUTOSET_LEVELS").ok();
         let conf = crate::sysconf::fork_text();
-        crate::drawpipe::conf_value(env.as_deref(), &conf, "autoset.levels").as_deref() != Some("records")
+        unit_levels_from(env.as_deref(), &conf)
     })
+}
+
+/// `env` if set, else the `autoset.levels` line of `conf`: the measure unit only with `unit`.
+fn unit_levels_from(env: Option<&str>, conf: &str) -> bool {
+    crate::drawpipe::conf_value(env, conf, "autoset.levels").as_deref() == Some("unit")
 }
 
 /// What the measure-unit step did (`Ui::auto_unit`).
@@ -1067,6 +1077,16 @@ mod tests {
         assert_eq!((need, runs), (ui.auto.as_ref().unwrap().stamp, UNIT_RUNS));
         let l = ch1.map(|(lo, hi, clipped)| crate::board::ChLevels { lo, hi, mean: (lo + hi) / 2.0, clipped });
         g.levels = Some((id, [l, None, None, None]));
+    }
+
+    // Break it catches: the measure unit on by default again (it gave stale levels on the unit, 2026-11-15)
+    #[test]
+    fn measure_unit_levels_only_on_request() {
+        assert!(!unit_levels_from(None, ""));
+        assert!(!unit_levels_from(None, "autoset.levels = records\n"));
+        assert!(unit_levels_from(None, "autoset.levels = unit\n"));
+        assert!(unit_levels_from(Some("unit"), "autoset.levels = records\n"));
+        assert!(!unit_levels_from(Some("records"), "autoset.levels = unit\n"));
     }
 
     // Break it catches: the measure-unit levels not used (the 20 ms/div records again), used from an answer to an
