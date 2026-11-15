@@ -122,8 +122,8 @@ Fixed:
 
 - The first record after a change of settings in a deep record (one frame per batch) could show the older memory of
   the settings before, e.g. twice the amplitude after the memory depth was changed: it is left out.
-- A measurement of a large record (more than 262 k points) no longer shows "not available" while it is computed in
-  the background: the last value stays until the new one is there.
+- A deep record measured from its raw window no longer shows "not available" for the time the background
+  measurement takes: the last value of the same settings stays until the new one is there.
 - SCPI over the raw socket answered nothing when the client closed its side after the command
   (`echo "*IDN?" | nc <scope> 5555`); the lines it sent are answered again.
 - From PR #8's second round (W4R): SIM no longer overwrites a loaded reference or switches channels off; math with
