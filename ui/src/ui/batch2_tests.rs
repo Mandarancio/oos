@@ -211,6 +211,20 @@ fn ref_look_lines_round_trip_and_ignore_nonsense() {
 }
 
 #[test]
+fn refs_without_channels_get_a_volt_axis() {
+    for layout in [Layout::Default, Layout::Minimal, Layout::Studio] {
+        let mut u = fresh(layout);
+        assert!(u.ref_axis_source().is_none());
+        for c in 0..NCH { u.m.ch[c].on = false; }
+        u.refs[0] = Some(sine_ref(0, 2000, 1e-6));
+        u.relayout();
+        assert!(u.ref_axis_source().is_some(), "{layout:?}");
+        let (vpd, _, unit, _) = u.ref_axis_source().unwrap();
+        assert_eq!((vpd, unit), (0.5, "V"));
+    }
+}
+
+#[test]
 fn shots_refs_sim_axis_power() {
     for layout in [Layout::Default, Layout::Studio] {
         let name = format!("{layout:?}").to_lowercase();
