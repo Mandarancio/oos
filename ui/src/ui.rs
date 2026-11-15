@@ -4804,9 +4804,9 @@ impl Ui {
         (if rows == 0 { 0 } else { rows * self.lay().strip_row + 4 }) + self.results_band_h()
     }
 
-    /// The measurement card in a dock (Minimal layout), when it was docked rather than floated.
+    /// The measurement card in a dock (compact bottom bar), when it was docked rather than floated.
     fn results_docked(&self) -> Option<StripDock> {
-        (self.m.minimal && self.workspace.measure_docked && self.workspace.measure_float.is_none() && self.results_panel()).then_some(self.m.strip_dock)
+        (self.m.bar_compact && self.workspace.measure_docked && self.workspace.measure_float.is_none() && self.results_panel()).then_some(self.m.strip_dock)
     }
 
     /// Width a side-docked measurement card takes from the plot.

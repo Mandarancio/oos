@@ -1,12 +1,10 @@
-//! Regression tests for the compact (Minimal) chrome audit.
+//! Regression tests for the compact chrome audit (PR #8; Display > Bottom bar = compact).
 use super::*;
 use super::workspace::Action;
 
-#[cfg(audit_shots)]
-mod audit_shots;
-
 fn fresh() -> Ui {
     let mut u = Ui::new(Source::Demo { t: 0.0 });
+    u.m.bar_compact = true;
     u.relayout();
     for _ in 0..4 { u.step(0.05); }
     u
@@ -138,7 +136,7 @@ fn a_docked_measurement_card_reflows_the_plot_instead_of_covering_it() {
     assert_ne!(u.grid, before);
     // Default layout keeps the stock overlay
     let mut u = fresh();
-    u.m.minimal = false;
+    u.m.bar_compact = false;
     u.workspace_action(Action::MeasureDock(StripDock::Left));
     assert!(u.results_docked().is_none());
 }

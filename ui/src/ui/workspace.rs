@@ -261,7 +261,10 @@ mod tests {
                     }
                     _ => unreachable!(),
                 };
-                assert!(header.contains(x, y), "the test must overlap the actual background header");
+                // a floating measurement card keeps clear of the full-screen and zoom buttons (PR #8), and the
+                // settings' Close sits beside them: there the card cannot lie under it any more
+                let unreachable = panel == Panel::Measurements && !back;
+                assert!(unreachable || header.contains(x, y), "the test must overlap the actual background header");
                 let position = (ui.workspace.measure_float, ui.workspace.eye_float);
                 pointer_tap(&mut ui, target);
                 assert!(!ui.results_min, "Back/Close must not fold the statistics panel behind the menu");
