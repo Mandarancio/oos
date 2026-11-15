@@ -6354,9 +6354,11 @@ impl Ui {
         v
     }
 
-    /// Switches the decoder protocol with sources that match the demo bus traffic (`Protocol::setup`). On the hardware
-    /// the trigger stays as it is (the forum, eTobey: one setting must not change another); only the channels the
-    /// protocol decodes are switched on.
+    /// Switches the decoder protocol. The demo takes the sources, channels and trigger that match its bus traffic
+    /// (`Protocol::setup`). On the hardware one setting must not change another (the forum, eTobey): the channels and
+    /// the trigger stay as they are, the sources the protocols share stay, and a role the old protocol did not have
+    /// takes a channel that is on and no other role uses, or none. The protocol's own parameters (threshold, baud, bits
+    /// ...) are set on both.
     fn set_dec_proto(&mut self, p: Proto) {
         let Proto::Module(i) = p;
         let s = crate::protocols::get(i).setup();
@@ -6370,21 +6372,47 @@ impl Ui {
         let demo = !self.src.is_hw();
         let m = &mut self.m;
         let changed = m.dec_proto != p;
+        let old = m.dec_proto.roles();
         m.dec_proto = p;
-        // its demo channels, LA lines, threshold and shared rows; its own options from their defaults when it is newly
-        // chosen
-        m.dec_la = s.la;
-        // roles the protocol doesn't have keep their sources (one setting doesn't change another)
+        // its threshold and shared rows; its own options from their defaults when it is newly chosen
+        m.dec_thr = s.thr;
         let r = p.roles();
-        (m.dec_src, m.dec_thr) = (s.src[0].unwrap_or(2), s.thr);
-        if r[2].is_some() {
-            m.dec_cs = s.src[2];
-        }
-        if r[3].is_some() {
-            m.dec_src4 = s.src[3];
-        }
-        if let Some(c) = s.src[1] {
-            m.dec_src2 = c;
+        if demo {
+            // its demo channels and LA lines; roles the protocol doesn't have keep their sources
+            m.dec_la = s.la;
+            m.dec_src = s.src[0].unwrap_or(2);
+            if r[2].is_some() {
+                m.dec_cs = s.src[2];
+            }
+            if r[3].is_some() {
+                m.dec_src4 = s.src[3];
+            }
+            if let Some(c) = s.src[1] {
+                m.dec_src2 = c;
+            }
+        } else {
+            // a new role: a channel that is on and that no other role of the protocol uses
+            let mut used = vec![m.dec_src];
+            if r[1].is_some() && old[1].is_some() && m.dec_src2 != m.dec_src {
+                used.push(m.dec_src2);
+            }
+            used.extend([(r[2], old[2], m.dec_cs), (r[3], old[3], m.dec_src4)].into_iter().filter_map(|(n, o, c)| n.and(o).and(c)));
+            let mut free = |m: &Model| {
+                let c = (0..NCH).find(|&c| m.ch[c].on && !used.contains(&c));
+                used.extend(c);
+                c
+            };
+            if r[1].is_some() && (old[1].is_none() || m.dec_src2 == m.dec_src) {
+                if let Some(c) = free(m) {
+                    m.dec_src2 = c;
+                }
+            }
+            if r[2].is_some() && (old[2].is_none() || m.dec_cs.is_none()) {
+                m.dec_cs = free(m);
+            }
+            if r[3].is_some() && (old[3].is_none() || m.dec_src4.is_none()) {
+                m.dec_src4 = free(m);
+            }
         }
         if s.la_off {
             m.dec_la_in = false;
@@ -6409,8 +6437,11 @@ impl Ui {
                 m.pane = tables::PANE_BUS;
             }
         }
-        // every source the protocol uses; the demo traffic of some is on all its channels or on every channel
-        let r = p.roles();
+        if !demo {
+            self.dirty_map = true;
+            return;
+        }
+        // the demo: every source the protocol uses; the traffic of some is on all its channels or on every channel
         m.ch[m.dec_src].on = true;
         if r[1].is_some() {
             m.ch[m.dec_src2].on = true;

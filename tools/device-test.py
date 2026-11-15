@@ -1591,7 +1591,8 @@ def generator_has_no_dc_in_any_gear(s, o):
 
 @test("a1", need=(1,))
 def deep_memory_stays_responsive(s, o):
-    """100 kHz in a 50 M record is a hundred thousand edges, for each frame's measurements; Auto from there is quick too."""
+    """100 kHz in a 50 M record is a hundred thousand edges, for each frame's measurements; Auto from there is quick
+    too and keeps the 50 M, and with depth Auto it picks a short record."""
     s.gen("SIN", 1e5, 1.0)
     s.w(":TIM:SCAL 5e-6")
     s.w(":ACQ:MDEP 50000000")
@@ -1606,16 +1607,25 @@ def deep_memory_stays_responsive(s, o):
             worst = max(worst, time.time() - t)
     s.w(":TIM:SCAL 5e-6")
     time.sleep(3)
-    t = time.time()
-    s.w(":AUT")
-    while time.time() - t < 15 and s.q(":AUT?").strip() not in ("0", "OFF"):
-        time.sleep(0.3)
-    took = time.time() - t
-    depth = s.num(":ACQ:MDEP?")
+
+    def auto():
+        t = time.time()
+        s.w(":AUT")
+        while time.time() - t < 15 and s.q(":AUT?").strip() not in ("0", "OFF"):
+            time.sleep(0.3)
+        return time.time() - t
+
+    # Auto keeps a depth the user fixed (one setting does not change another); with depth Auto it picks a short one
+    took = auto()
+    kept = s.num(":ACQ:MDEP?")
     s.w(":ACQ:MDEP AUTO")
+    time.sleep(1)
+    took2 = auto()
+    depth = s.num(":ACQ:MDEP?")
     clean(s)
-    assert worst < 1.0 and took < 10 and depth < 1e7, f"answer {worst:.2f} s, Auto {took:.1f} s, depth {depth:g}"
-    return f"answer {worst * 1e3:.0f} ms, Auto {took:.1f} s"
+    assert worst < 1.0 and max(took, took2) < 10 and abs(kept - 5e7) < 1 and depth < 1e7, \
+        f"answer {worst:.2f} s, Auto {took:.1f} / {took2:.1f} s, depth kept {kept:g}, with Auto depth {depth:g}"
+    return f"answer {worst * 1e3:.0f} ms, Auto {took:.1f} s (50 M kept), {took2:.1f} s (depth Auto: {depth:g})"
 
 
 @test("a1", need=(1,))

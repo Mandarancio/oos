@@ -84,3 +84,43 @@ fn draw_path_bottom_bar_and_features_leave_the_acquisition() {
     }
     assert_eq!(keep(&u.m), before);
 }
+
+#[test]
+fn every_decoder_protocol_and_back_leaves_the_channels_and_the_trigger() {
+    // on the hardware a protocol sets its own parameters only: no channel is switched on, no trigger changes, and
+    // the sources the protocols share stay (a new role takes a channel that is on, or none)
+    let mut u = ui();
+    u.m.dec_on = true;
+    let n = u.protos_on().len();
+    let before = crate::store::setup_text(&u.m);
+    for _ in 0..n {
+        let on: Vec<bool> = u.m.ch.iter().map(|c| c.on).collect();
+        u.adjust(Item::DecProto, 1);
+        u.step(0.05);
+        assert_eq!(u.m.ch.iter().map(|c| c.on).collect::<Vec<_>>(), on, "{} switched a channel", u.m.dec_proto.name());
+        let roles = u.m.dec_proto.roles();
+        for (role, c) in [(roles[1].map(|_| u.m.dec_src2), ()), (roles[2].and(u.m.dec_cs), ()), (roles[3].and(u.m.dec_src4), ())].map(|x| x.0).into_iter().enumerate() {
+            if let Some(c) = c.filter(|&c| c != u.m.dec_src) {
+                assert!(c < NCH, "{} role {}: {c}", u.m.dec_proto.name(), role + 1);
+            }
+        }
+    }
+    let after = crate::store::setup_text(&u.m);
+    // the decoder's own keys and the pane a protocol with a view of its own opens
+    let bad: Vec<String> = changed(&before, &after).into_iter().filter(|k| !k.starts_with("dec") && !k.starts_with("ser.") && k != "pane").collect();
+    assert!(bad.is_empty(), "protocols round: {bad:?} changed");
+}
+
+#[test]
+fn a_new_decoder_role_takes_a_channel_that_is_on() {
+    let mut u = ui();
+    // CH1 and CH2 are on: UART decodes CH1; SPI adds clock/data, chip select
+    u.m.dec_on = true;
+    u.set_dec_proto(Proto::UART);
+    u.m.dec_src = 0;
+    u.set_dec_proto(Proto::SPI);
+    assert_eq!(u.m.dec_src, 0, "the shared source stays");
+    assert_eq!(u.m.dec_src2, 1, "the second role takes CH2, which is on");
+    assert_eq!(u.m.dec_cs, None, "no channel left that is on: no chip select");
+    assert!(!u.m.ch[2].on && !u.m.ch[3].on, "nothing switched on");
+}

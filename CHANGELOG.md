@@ -99,6 +99,11 @@ New:
 
 Changed:
 
+- Choosing a decoder protocol on the hardware sets its own parameters only (threshold, baud, bits ...): no channel is
+  switched on and the trigger stays. The sources the protocols share stay; a role the old protocol did not have takes
+  a channel that is on and no other role uses, or none. The demo keeps the sources and trigger that suit its traffic.
+  Same rule as the trigger types (the forum: one setting must not change another).
+- Auto keeps a memory depth you fixed (PR #7); with depth Auto it picks a short record, as before.
 - Frame 0 of a hardware batch of several frames is left out: the FPGA records it before the arm, sometimes joined
   with older memory, a stray trace (issue #5). `acq.frame0 = keep` keeps it.
 - With two channels at different V/div the read-path gain and offset follow the stock lane order (PR #7): the DC level
