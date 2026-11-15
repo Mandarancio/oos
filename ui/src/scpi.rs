@@ -704,11 +704,14 @@ impl Scpi {
         while i < self.clients.len() {
             let mut tmp = [0u8; 4096];
             let mut closed = false;
+            // the client sent its last bytes (`echo "*IDN?" | nc host 5555` closes its side after the line): what came
+            // before is still answered, as in 0.1.12 and on the stock system
+            let mut eof = false;
             let mut read_bytes = 0;
             loop {
                 match crate::net::read_now(&self.clients[i].s, &mut tmp) {
                     Ok(0) => {
-                        closed = true;
+                        eof = true;
                         break;
                     }
                     Ok(n) => {
@@ -723,6 +726,10 @@ impl Scpi {
                     }
                 }
             }
+            // a program waiting for an operation (`*OPC?`) when the client went is not resumed: no later command of it runs
+            if eof && self.clients[i].program.is_some() {
+                closed = true;
+            }
             while !closed {
                 if self.clients[i].program.is_none() {
                     let Some(p) = self.clients[i].buf.iter().position(|&c| c == b'\n') else { break; };
@@ -731,7 +738,10 @@ impl Scpi {
                 }
                 let mut program = self.clients[i].program.take().unwrap();
                 let Some(mut response) = self.poll_program(ui, cv, &mut program) else {
-                    self.clients[i].program = Some(program);
+                    // after the end of the input a program that would have to wait is dropped
+                    if !eof {
+                        self.clients[i].program = Some(program);
+                    }
                     break;
                 };
                 if program.has_reply {
@@ -739,7 +749,7 @@ impl Scpi {
                     if !send(&mut self.clients[i].s, &response) { closed = true; break; }
                 }
             }
-            closed |= self.clients[i].buf.len() > MAX_LINE;
+            closed |= eof || self.clients[i].buf.len() > MAX_LINE;
             if closed {
                 self.clients.remove(i);
             } else {
@@ -4694,6 +4704,24 @@ mod tests {
         line(&mut s,&mut ui,&cv,":TRIG:FORC");ui.step(0.2);for _ in 0..25 { server.poll_async(&mut |p|s.poll_program(&mut ui,&cv,p)); std::thread::sleep(std::time::Duration::from_millis(2)); }
         let n=client.read(&mut bytes).unwrap();let response=crate::hislip::take_message(&mut bytes[..n].to_vec()).unwrap().unwrap();
         assert_eq!((response.typ,response.param),(7,77));assert_eq!(response.data,b"WAIT;1\nSTOP\n");
+    }
+
+    // Break it catches: `echo "*IDN?" | nc host 5555` (the client closes its side after the line) got no answer
+    #[test]
+    fn a_query_is_answered_after_the_client_closed_its_side() {
+        let (mut s, mut ui, cv) = session();
+        let mut client = TcpStream::connect(("127.0.0.1", s.port().unwrap())).unwrap();
+        client.write_all(b"*IDN?\n").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        for _ in 0..50 {
+            s.poll(&mut ui, &cv);
+            if s.clients.is_empty() { break; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let mut answer = String::new();
+        std::io::Read::read_to_string(&mut client, &mut answer).unwrap();
+        assert!(answer.starts_with("OOS,"), "{answer:?}");
     }
 
     #[test]
