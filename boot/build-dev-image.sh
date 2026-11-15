@@ -125,6 +125,10 @@ docker run --rm --platform linux/arm64 -e OUT_OWNER="$owner" -e OOS_NO_AUTOACQ="
 	cp $M/modules.dep $M/modules.alias $M/modules.order $M/modules.builtin* $r/lib/modules/$rel/ 2>/dev/null || true
 	# the console node the kernel opens before /init mounts devtmpfs
 	mknod -m 600 $r/dev/console c 5 1
+	# copies a file sync made in the build outputs (iCloud: "libc.so.6 2", "oos-gpu 2") stay out of the image: 27 MB
+	# of them in rootfs/out/gpu made the initramfs of the first 0.1.13 build 10 MB larger (2026-11-15)
+	dup=$(cd $r && find . \( -name "* [0-9]" -o -name "* [0-9].*" \) | head -5)
+	[ -z "$dup" ] || { echo "build-dev-image.sh: copies of a file sync in the image, remove them from the source: $dup" >&2; exit 1; }
 	(cd $r && find . | sort | cpio -o -H newc -R 0:0 --quiet) > /tmp/root.cpio
 	gzip -9n < /tmp/root.cpio > /out/initramfs.cpio.gz
 	cp /k/$OOS_KERNEL_DTB /out/$OOS_IMAGE_NAME.dtb
