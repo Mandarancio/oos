@@ -283,3 +283,27 @@ fn shots_refs_sim_axis_power() {
     p.analyzer_update();
     shot(&mut p, "power-noprobe");
 }
+
+#[test]
+fn eye_on_a_stopped_sim_ref_computes_instead_of_waiting_for_edges() {
+    // PCIe 5.0 at 32 Gb/s into R1, then Stop holds the frame: no new record arrives to trigger the analysis
+    let mut u = fresh(Layout::Minimal);
+    u.store_dir = std::env::temp_dir().join("oos-batch2-eye");
+    assert!(u.sim_preset_set("PCIe 5.0"));
+    u.sim_activate(Item::SimPlay);
+    u.wait_sim_generation();
+    for _ in 0..10 { u.step(0.05); u.wait_sim_generation(); }
+    assert_eq!(u.m.eye_src, WaveId::Ref(u.m.sim_slot));
+    u.key(key::RUNSTOP);
+    for _ in 0..5 { u.step(0.05); }
+    assert!(!u.sim_playing());
+    u.m.view = AView::Eye;
+    u.step(0.05);
+    let mut done = false;
+    for _ in 0..600 {
+        u.step(0.05); u.wait_sim_generation(); std::thread::sleep(std::time::Duration::from_millis(50));
+        if u.azr.eye.is_some() { done = true; break; }
+    }
+    assert!(done, "the eye of a held SIM frame is computed: {:?}", u.azr.page.status);
+    assert!(!u.azr.page.status[0].starts_with("Waiting"), "{:?}", u.azr.page.status);
+}

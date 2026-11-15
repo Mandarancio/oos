@@ -1234,6 +1234,8 @@ pub struct Ui {
     /// SIM: Play is moving the timebase window through the selected record
     workspace: workspace::Workspace,
     pub desktop_panel: Option<bool>,
+    /// the analyser view the last frame had: a change of view analyses what is already there (a stopped record gets no new one)
+    analyzed_view: AView,
     sim_play: bool,
     sim_generation: Option<sim::Generation>,
     sim_error: Option<String>,
@@ -1595,6 +1597,7 @@ impl Ui {
             bode: Default::default(),
             workspace: workspace::Workspace::default(),
             desktop_panel: None,
+            analyzed_view: AView::Scope,
             sim_play: false,
             sim_generation: None,
             sim_error: None,
@@ -3029,6 +3032,10 @@ impl Ui {
                     }
                 }
             }
+        }
+        if self.analyzed_view != self.m.view {
+            self.analyzed_view = self.m.view;
+            if self.m.view != AView::Scope { self.analyzer_update(); }
         }
         // the measurements of the newest record (in the background: when they are done, also after a stop)
         self.meas_poll();
