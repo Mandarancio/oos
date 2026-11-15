@@ -240,8 +240,7 @@ impl Ui {
     pub(super) fn draw_catalog(&self, cv: &mut Canvas) {
         let lay = self.catalog_lay();
         let f = &self.fonts();
-        cv.round(lay.r, 8, ACCENT, 255);
-        cv.round(lay.r.inset(2), 7, DLG_BG, 255);
+        cv.framed(lay.r, 8, 2, ACCENT, 7, DLG_BG);
         cv.text(&f.mb, lay.r.x + 16, lay.r.y + 31, "Measure", TEXT);
         btn(cv, lay.close, BTN, BTN_BORDER);
         cv.text_in(&f.mb, lay.close, 1, "\u{d7}", TEXT);

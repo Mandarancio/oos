@@ -458,8 +458,7 @@ impl Ui {
         let Some(&(k, id)) = self.m.meas.get(index) else { return };
         let own = self.meas_own.get(&(k, id)).copied().unwrap_or_else(|| MeasOwn::shared(&self.m));
         let f = &self.fonts();
-        cv.round(g.panel, 8, ACCENT, 255);
-        cv.round(g.panel.inset(2), 7, DLG_BG, 255);
+        cv.framed(g.panel, 8, 2, ACCENT, 7, DLG_BG);
         cv.text(&f.mb, g.panel.x + 16, g.panel.y + 26, &format!("{} settings", k.name()), TEXT);
         btn(cv, g.close, BTN, BTN_BORDER);
         cv.text_in(&f.sb, g.close, 1, "X", TEXT);

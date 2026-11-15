@@ -21,6 +21,10 @@ New:
   bar (drag the thumb, or press the track to jump there) and follow a finger drawn over them; a press that does not
   move is still a tap. The Up / Down buttons are gone. Fixed: folding a group of the measurement page after scrolling
   left the list past its end with no way back; a list's position is now always kept in range.
+- Graphics = GPU: buttons and dialog frames no longer cover their area twice (the border is drawn only where the
+  fill leaves it, `Canvas::framed`), pixel for pixel the same picture. With the measurement page open and HDMI
+  Layout the monitor's GPU time fell from 38.5 to 12.3 ms a frame, the frame rate rose from 25.3 to 27.4 (DHO924S,
+  four channels, 1920 x 1080).
 - Measurements are modules (`ui/src/measures`, docs/measurement-modules.md): a module gives its measurements' tiles
   (name, description, mark, unit, sources, category and group) and computes their values on the worker thread; one
   line registers it. The 83 analysis measurements moved into nine modules (NRZ rate, jitter & eye, power, rails,
