@@ -117,6 +117,9 @@ Changed:
 - DMA reads are at most 4 MiB each; SINGLE arms one frame per batch; STOP disarms (PR #7).
 - `:ACQuire:SRATe?` and `:MDEPth?` answer the hardware's rate and depth, as the top bar shows them.
 - `:ACQuire:AVERages` snaps a count the menu does not offer down to the next one (PR #8).
+- Storage > Save to: Desktop is now Local, the storage directory also while a USB stick is in (on the unit
+  `/tmp/oos`, in RAM). Desktop wrote to `/root/Desktop/OOS` on the unit, a RAM folder nobody looks in, and to
+  `Documents\OOS\Desktop` on Windows. The Storage title names where the files go now, also with a stick in.
 
 Fixed:
 

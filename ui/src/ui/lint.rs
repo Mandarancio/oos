@@ -290,6 +290,12 @@ fn files_go_to_the_stick_while_it_is_there() {
     u.store_dir = "/oos/shots".into();
     assert_eq!(u.save_dir(), std::path::Path::new("/oos/shots"));
     assert_eq!(u.saved_where(), "");
+    // Local keeps the files in the storage directory while the stick is there, and the title says so
+    u.store_dir = crate::store::DEFAULT_DIR.into();
+    u.store_dest = crate::store::StoreDest::Local;
+    assert_eq!(u.save_dir(), std::path::Path::new(crate::store::DEFAULT_DIR));
+    assert_eq!(u.saved_where(), " locally, not on the stick");
+    assert!(u.menu_title(MenuId::Storage).contains("lost at power-off"));
 }
 
 #[test]

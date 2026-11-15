@@ -6733,10 +6733,10 @@ impl Ui {
 
     fn menu_title(&self, menu: MenuId) -> String {
         match menu {
-            // /tmp is in RAM: say so where the files go
-            MenuId::Storage if self.usb_used() => "Storage \u{b7} USB stick".into(),
-            MenuId::Storage if self.store_dir.starts_with("/tmp") => format!("Storage \u{b7} {} (lost at power-off)", self.store_dir.display()),
-            MenuId::Storage => format!("Storage \u{b7} {}", self.store_dir.display()),
+            // where the files go now; /tmp is in RAM: say so
+            MenuId::Storage if self.save_dir() == std::path::Path::new(crate::store::USB_DIR) => "Storage \u{b7} USB stick".into(),
+            MenuId::Storage if self.save_dir().starts_with("/tmp") => format!("Storage \u{b7} {} (lost at power-off)", self.save_dir().display()),
+            MenuId::Storage => format!("Storage \u{b7} {}", self.save_dir().display()),
             MenuId::Mask => "Mask test".into(),
             MenuId::Zone => "Zone trigger".into(),
             MenuId::Spectrum => "Spectrum analyser".into(),
@@ -8247,13 +8247,7 @@ impl Ui {
     pub fn save_dir(&self) -> std::path::PathBuf {
         match self.store_dest {
             crate::store::StoreDest::Stick => std::path::PathBuf::from(crate::store::USB_DIR),
-            crate::store::StoreDest::Desk => {
-                if self.store_dir == std::path::Path::new(crate::store::DEFAULT_DIR) {
-                    crate::store::desktop_dir()
-                } else {
-                    self.store_dir.join("Desktop")
-                }
-            }
+            crate::store::StoreDest::Local => self.store_dir.clone(),
             crate::store::StoreDest::Auto => {
                 if self.usb_used() { std::path::PathBuf::from(crate::store::USB_DIR) } else { self.store_dir.clone() }
             }
@@ -8263,7 +8257,7 @@ impl Ui {
     /// For the message after saving.
     pub fn saved_where(&self) -> &'static str {
         match self.store_dest {
-            crate::store::StoreDest::Desk => " on the desktop",
+            crate::store::StoreDest::Local if self.usb => " locally, not on the stick",
             crate::store::StoreDest::Stick => " on the USB stick",
             crate::store::StoreDest::Auto if self.usb_used() => " on the USB stick",
             _ => "",
@@ -12030,7 +12024,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("oos-mask-{}", std::process::id()));
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
         ui.store_dir = dir.clone();
-        ui.store_dest = crate::store::StoreDest::Desk;
+        ui.store_dest = crate::store::StoreDest::Local;
         ui.step(0.033);
         let rec = ui.last[0].as_ref().unwrap();
         ui.refs[0] = Some(RefWave { src: 0, color: 0, label: "R1".into(), t0: rec.t0, dt: rec.dt, v: rec.ch[0].clone().into(), vpd: 1.0, offset: 0.0, on: true });
@@ -12039,10 +12033,9 @@ mod tests {
         ui.adjust(Item::MaskInvert, 1);
         assert!(ui.m.mask_inv && ui.mask.as_ref().unwrap().invert);
         ui.activate(Item::MaskSave);
-        let desk = dir.join("Desktop");
-        assert!(desk.join("mask-001.txt").is_file());
+        assert!(dir.join("mask-001.txt").is_file());
         assert!(dir.join("mask1.txt").is_file());
-        let t = std::fs::read_to_string(desk.join("mask-001.txt")).unwrap();
+        let t = std::fs::read_to_string(dir.join("mask-001.txt")).unwrap();
         assert!(t.starts_with("# OOS mask\n") && t.contains("inv=1"));
         ui.activate(Item::MaskClear);
         assert!(ui.mask.is_none() && !ui.m.mask_on);
@@ -12053,18 +12046,18 @@ mod tests {
     }
 
     #[test]
-    fn fast_frame_save_and_load_and_desktop_dest() {
+    fn fast_frame_save_and_load_and_local_dest() {
         use super::*;
         let dir = std::env::temp_dir().join(format!("oos-ff-{}", std::process::id()));
         let mut ui = Ui::new(Source::Demo { t: 0.0 });
         ui.store_dir = dir.clone();
-        ui.store_dest = crate::store::StoreDest::Desk;
+        ui.store_dest = crate::store::StoreDest::Local;
         for _ in 0..4 {
             ui.step(0.033);
         }
         assert!(ui.history.len() >= 3);
         ui.activate(Item::StoreFfSave);
-        let p = dir.join("Desktop/frame-001.bin");
+        let p = dir.join("frame-001.bin");
         assert!(p.is_file());
         let n = ui.history.len();
         ui.history.clear();

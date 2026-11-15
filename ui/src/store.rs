@@ -24,26 +24,20 @@ pub enum StoreDest {
     Auto,
     /// USB stick (`/mnt/usb/OOS`)
     Stick,
-    /// Desktop folder of the logged-in user
-    Desk,
+    /// The local storage directory, also when a stick is mounted (on the unit `/tmp/oos`, in RAM)
+    Local,
 }
 
 impl StoreDest {
-    pub const ALL: [StoreDest; 3] = [StoreDest::Auto, StoreDest::Stick, StoreDest::Desk];
+    pub const ALL: [StoreDest; 3] = [StoreDest::Auto, StoreDest::Stick, StoreDest::Local];
 
     pub fn name(self) -> &'static str {
         match self {
             StoreDest::Auto => "Auto",
             StoreDest::Stick => "USB",
-            StoreDest::Desk => "Desktop",
+            StoreDest::Local => "Local",
         }
     }
-}
-
-/// Desktop save folder (`$HOME/Desktop/OOS`, else `/root/Desktop/OOS`).
-pub fn desktop_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-    PathBuf::from(home).join("Desktop").join("OOS")
 }
 
 /// A stick is mounted, by the text of /proc/mounts.
