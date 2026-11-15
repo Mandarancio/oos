@@ -1,11 +1,11 @@
 # Changes
 
-## Unreleased
+## 0.1.13
 
 Merged from the forks on GitHub (PR #7 by ichnograph, DHO804; PR #8 by W4R/wasimlhr, OOS Plus), with main since
-0.1.12. Their work is credited in the commits. Not yet on a release; host tests pass, the device test is open.
-PR #9 to #13 (W4R/wasimlhr, topics cut from PR #8) are merged as well: their functions were in the tree with PR #8,
-new from them are the Cursor B source row and the power measurement tests.
+0.1.12. Their work is credited in the commits. PR #9 to #13 (W4R/wasimlhr, topics cut from PR #8) are merged as
+well: their functions were in the tree with PR #8, new from them are the Cursor B source row and the power
+measurement tests. From PR #8's second round (2026-11-15) the fixes are in, its Studio layout is not.
 
 New:
 
@@ -124,14 +124,22 @@ Fixed:
   the settings before, e.g. twice the amplitude after the memory depth was changed: it is left out.
 - A measurement of a large record (more than 262 k points) no longer shows "not available" while it is computed in
   the background: the last value stays until the new one is there.
-
+- From PR #8's second round (W4R): SIM no longer overwrites a loaded reference or switches channels off; math with
+  a reference as source fits its scale; setups keep how references look; references with no channel shown get a volt
+  axis; the power page says why it has no numbers (no signal, no current probe, no whole cycle) instead of zeros;
+  the eye of a held SIM reference is computed instead of waiting for edges; Measure > Dock docks the card again after
+  it floated, a floated eye follows the placement, a card docked under the plot shows up to 8 rows a page; the
+  trigger pill shows the Pattern/Duration level; Delay and Setup/Hold take their second source from a channel that is
+  on; the Sources popup keeps one source on; overlapping labels of the eye, spectrum, Bode, histogram, references and
+  time axis, and the floating measurement card kept clear of the corner buttons.
 - Choosing a trigger type changed settings the other types share (found by a new test after eTobey's point in the
   forum): Pulse switched CH4 on and made it the source, Video set CH2 to 0.2 V/div, Setup/Hold switched CH3 on, Nth
   edge turned the slope to falling. These presets suit the demo signals only; on the hardware a trigger type now sets
   its own parameters and leaves the channels, the source, the level and the slope as they were.
 - Dots mode drew min/max pairs as two dots and lost the edges of a square at slow time bases (PR #7).
 - Minimum persistence flickered with the batch sizes; the picture is graded by the frames it holds (PR #7).
-- Mean-type measurements on min/max pairs are shown as not available instead of wrong (PR #7).
+- Mean-type measurements are no longer computed from min/max pairs, which made them wrong (PR #7); deep records get
+  them from raw reads (see Changed).
 - The record path no longer takes up to 48 records in a screen, which split a batch over two screens (issue #6).
 - Axis labels: enough decimals for small steps at a large delay.
 
