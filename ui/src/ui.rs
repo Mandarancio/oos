@@ -12299,12 +12299,15 @@ mod tests {
             }
             // through `step`: 41 queued frames, 40 by the fast path, the newest as the record; nothing left
             shared.lock().unwrap().queue.extend((1..=41).map(frame));
+            // the take handed to the thread is the one before the step: the step then adapts it to the time it
+            // measured, which under load (tests in parallel) is less
+            let take = ui.fast_max() + 1;
             ui.step(0.05);
             assert_eq!(ui.wfm_total, 41);
             assert_eq!(ui.records, 1);
             assert!(shared.lock().unwrap().queue.is_empty());
             // the thread is told how many of a batch to decode; the record path wants them all
-            assert_eq!(shared.lock().unwrap().take, ui.fast_max() + 1);
+            assert_eq!(shared.lock().unwrap().take, take);
             ui.m.acq = AcqMode::Average;
             ui.step(0.05);
             assert_eq!(shared.lock().unwrap().take, 0);
