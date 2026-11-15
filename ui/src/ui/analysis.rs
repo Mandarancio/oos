@@ -422,7 +422,7 @@ impl Ui {
             let analysis = self.channel_measurement(channel, full).map(|(analysis, _)| analysis);
             // a large record measured in the background: the values of the last one stay until the worker answers (a
             // deep record measured raw once a second showed "not available" for that time, unit 2026-11-15)
-            if analysis.is_none() && self.m.ch[channel].on && self.measurement_computing(WaveId::Ch(channel)) && self.ana[channel].valid {
+            if analysis.is_none() && self.m.ch[channel].on && self.computing_like_last(channel) && self.ana[channel].valid {
                 continue;
             }
             let basic = self.native_channel_basic(channel);
@@ -455,6 +455,28 @@ impl Ui {
         let cache = cache.borrow(); let cache = cache.as_ref()?;
         (current.is_some_and(|(key, _)| key == cache.key) && !cache.key.basic)
             .then_some((cache.key, Arc::as_ptr(&cache.analysis) as usize))
+    }
+
+    /// A large record of channel `channel` is measured in the background, and the last finished measurement had the
+    /// same settings (points, sample spacing, start time, V/div, levels): its value may stand in until the new one is
+    /// there. After a change of settings it may not: the old value would read as the new one (unit 2026-11-15, the
+    /// frequency of the time base before in roll mode).
+    pub(super) fn computing_like_last(&self, channel: usize) -> bool {
+        if channel >= NCH || !self.measurement_computing(WaveId::Ch(channel)) {
+            return false;
+        }
+        // only for the raw window of a deep record (deepmeas.rs), read once in a while: where records come faster
+        // than the worker (roll at 0.2 to 0.5 s/div) the last finished value could be from before a change of the
+        // signal and stood for seconds (time_axis_at_every_channel_count on the unit, 2026-11-15)
+        if !self.last[0].as_ref().and_then(|r| r.raw.as_ref()).is_some_and(|r| crate::deepmeas::deep_raw_frame(&r.frame)) {
+            return false;
+        }
+        let Some(pending) = self.azr.ch_measure_pending[channel].get() else { return false };
+        let cache = self.azr.ch_measure[channel].borrow();
+        cache.as_ref().is_some_and(|c| {
+            let k = c.key;
+            (k.len, k.dt, k.t0, k.vpd, k.low, k.high, k.epoch, k.full) == (pending.len, pending.dt, pending.t0, pending.vpd, pending.low, pending.high, pending.epoch, pending.full)
+        })
     }
 
     pub(super) fn measurement_computing(&self, id: WaveId) -> bool {

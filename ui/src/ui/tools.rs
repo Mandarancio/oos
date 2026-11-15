@@ -145,11 +145,12 @@ impl Ui {
         stat.min = stat.min.min(value); stat.max = stat.max.max(value);
     }
 
-    /// While a large record of channel `c` is measured in the background: the value of the last record measured
-    /// (`measure_channel_sources` keeps it), so a deep record measured raw once a second does not show "not
-    /// available" for the time the worker takes (unit 2026-11-15). NaN when nothing is computing.
+    /// While a large record of channel `c` is measured in the background with the settings of the last one: the value
+    /// of that one (`measure_channel_sources` keeps it), so a deep record measured raw once a second does not show "not
+    /// available" for the time the worker takes (unit 2026-11-15). NaN when nothing is computing or the settings
+    /// changed (`computing_like_last`).
     fn meas_while_computing(&self, c: usize, k: Meas) -> f64 {
-        if !self.m.ch[c].on || !self.measurement_computing(WaveId::Ch(c)) || matches!(k, Meas::TVmax | Meas::TVmin) {
+        if !self.m.ch[c].on || !self.computing_like_last(c) || matches!(k, Meas::TVmax | Meas::TVmin) {
             return f64::NAN;
         }
         if self.meas_env[c] && crate::framestats::needs_samples(k) {

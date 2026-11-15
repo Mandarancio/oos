@@ -2128,7 +2128,8 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                     // again (1.25 s at 50 ms/div)
                     let first = read_with.as_ref() != Some(&b);
                     read_with = Some(b.clone());
-                    let short = (p.memsel as f64) < FIRST_LEFT_MAX_S * p.rate as f64;
+                    // not in roll and scan: their pieces come in batches of one with settings of their own
+                    let short = (p.memsel as f64) < FIRST_LEFT_MAX_S * p.rate as f64 && frames.first().is_some_and(|f| !f.roll && !f.scan);
                     if first && !first_left && short && frames.len() == 1 && avail == 1 && !b.single && after.is_none() && frame0_drop() {
                         frames.clear();
                         first_left = true;
