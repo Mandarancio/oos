@@ -93,23 +93,27 @@ const WEB_NICE: i32 = 10;
 /// `SCHED_IDLE` (they get a core only while nothing else wants it), and only on the slower cores of a big.LITTLE SoC
 /// (RK3399: the four A53; the frame loop keeps the two A72 for itself). Nice 10 where that fails.
 fn lower_priority() {
+    // not in the tests: with every core busy with tests in parallel (CI), a thread at SCHED_IDLE got no time for
+    // seconds, and a viewer waiting for a picture got 304 or 503 instead
     #[cfg(target_os = "linux")]
-    // SAFETY: plain system calls on the calling thread; the parameter and the CPU set are local values.
-    unsafe {
-        let tid = libc::syscall(libc::SYS_gettid) as libc::pid_t;
-        // priority 0, the only one SCHED_IDLE takes (musl's struct has more fields)
-        let p: libc::sched_param = std::mem::zeroed();
-        // the system call itself: musl's sched_setscheduler() is a stub that always fails
-        if libc::syscall(libc::SYS_sched_setscheduler, tid, libc::SCHED_IDLE, &p as *const libc::sched_param) != 0 {
-            libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, WEB_NICE);
-        }
-        let little = little_cores();
-        if !little.is_empty() {
-            let mut set: libc::cpu_set_t = std::mem::zeroed();
-            for c in little {
-                libc::CPU_SET(c, &mut set);
+    if !cfg!(test) {
+        // SAFETY: plain system calls on the calling thread; the parameter and the CPU set are local values.
+        unsafe {
+            let tid = libc::syscall(libc::SYS_gettid) as libc::pid_t;
+            // priority 0, the only one SCHED_IDLE takes (musl's struct has more fields)
+            let p: libc::sched_param = std::mem::zeroed();
+            // the system call itself: musl's sched_setscheduler() is a stub that always fails
+            if libc::syscall(libc::SYS_sched_setscheduler, tid, libc::SCHED_IDLE, &p as *const libc::sched_param) != 0 {
+                libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, WEB_NICE);
             }
-            libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+            let little = little_cores();
+            if !little.is_empty() {
+                let mut set: libc::cpu_set_t = std::mem::zeroed();
+                for c in little {
+                    libc::CPU_SET(c, &mut set);
+                }
+                libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+            }
         }
     }
 }
