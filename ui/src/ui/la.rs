@@ -799,7 +799,7 @@ mod decode_tests {
         ui.m.bar_compact = true;
         ui.relayout();
         ui.tap(80, BOTTOM.y + 15);
-        ui.tap(110, BOTTOM.y - 49); // Sources > Logic analyser.
+        let (x, y) = fix_tests::row_xy(&ui, "Logic analyser"); ui.tap(x, y); // Sources > Logic analyser.
         assert!(!ui.m.la.on && !ui.menu_open);
         assert!(ui.toast.as_ref().is_some_and(|t| t.0.contains("No LA probe")));
         ui.key(key::LA);
