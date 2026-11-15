@@ -50,6 +50,8 @@ mod windows;
 mod workspace;
 #[cfg(test)]
 mod fix_tests;
+#[cfg(test)]
+mod batch2_tests;
 mod trigger_controls;
 mod scpi_operations;
 pub(crate) use scpi_operations::{Operations, OperationState, OperationToken};
@@ -6620,6 +6622,13 @@ impl Ui {
         }
         if hw {
             (m.ch, m.trig_src, m.trig_level, m.slope) = shared;
+            // the second source of Delay and Setup/Hold on a channel that is on (PR #8, W4R)
+            let src = m.trig_src;
+            if matches!(m.trig_type, TrigType::Delay | TrigType::SetupHold) && (m.trig_src2 == src || !m.ch[m.trig_src2.min(NCH - 1)].on) {
+                if let Some(c) = (0..NCH).find(|&k| k != src && m.ch[k].on) {
+                    m.trig_src2 = c;
+                }
+            }
         }
         self.dirty_map = true;
     }
