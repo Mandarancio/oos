@@ -1037,6 +1037,15 @@ mod tests {
     use super::*;
     use std::io::Read;
 
+    /// The tests that fetch large answers one after the other: `SENDERS` is shared by the whole process and lets
+    /// `MAX_SENDERS` through, and under load (tests in parallel, CI) a sender at `SCHED_IDLE` holds its place long
+    /// enough that another test is answered 503 busy
+    static SENDS: Mutex<()> = Mutex::new(());
+
+    fn sends() -> MutexGuard<'static, ()> {
+        SENDS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn a_foreign_site_gets_nowhere() {
         let f = |h: &str, route: &str, post: bool| foreign(&format!("GET {} HTTP/1.1\r\n{}\r\n\r\n", route, h), route, post);
@@ -1310,6 +1319,7 @@ setTimeout(() => {
 
     #[test]
     fn pages_and_downloads() {
+        let _sends = sends();
         let mut h = Http::open(0);
         let mut ui = Ui::new(crate::wave::Source::Demo { t: 0.0 });
         let cv = Canvas::new(crate::ui::PANEL_W, crate::ui::PANEL_H);
@@ -1342,6 +1352,7 @@ setTimeout(() => {
     /// Large answers leave the frame loop: the whole body arrives, also several at once, and the count goes back.
     #[test]
     fn large_answers_go_through_a_thread() {
+        let _sends = sends();
         use std::sync::atomic::Ordering::SeqCst;
         let mut h = Http::open(0);
         let mut ui = Ui::new(crate::wave::Source::Demo { t: 0.0 });
@@ -1392,6 +1403,7 @@ setTimeout(() => {
     /// failed about 1 in 7 under load; both orders now run on purpose.
     #[test]
     fn live_picture_from_the_frame_loop_without_a_copy() {
+        let _sends = sends();
         for frames_first in [true, false] {
             live_picture_hand_over(frames_first);
         }
@@ -1470,6 +1482,7 @@ setTimeout(() => {
     /// and forth between the new and an older screen), and the picture is one that came back.
     #[test]
     fn live_picture_with_the_gpu_is_a_picture_read_back() {
+        let _sends = sends();
         let mut h = Http::open(0);
         let mut ui = Ui::new(crate::wave::Source::Demo { t: 0.0 });
         let mut cv = Canvas::new(crate::ui::PANEL_W, crate::ui::PANEL_H);
@@ -1508,6 +1521,7 @@ setTimeout(() => {
     /// nothing changes, or the new picture as soon as the screen changes; a viewer without it gets it at once.
     #[test]
     fn live_picture_once_per_screen_and_long_poll() {
+        let _sends = sends();
         // the comparison of two screens, at every length and a difference at every place
         for n in [0usize, 1, 7, 8, 9, 63, 64, 65] {
             let a: Vec<u32> = (0..n as u32).map(|i| i.wrapping_mul(2654435761)).collect();
