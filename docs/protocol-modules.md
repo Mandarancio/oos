@@ -32,7 +32,9 @@ Only `key`, `name`, `bit_time` and `decode` are required. The defaults fit a sin
 2. **The module**: copy `ui/src/protocols/example.rs` to `ui/src/protocols/<name>.rs`. The example uses every hook.
    Small modules such as `dmx512.rs` or `usbpd.rs` show how little a plain protocol needs; `dcc.rs` is a complete one
    with labels, a bipolar demo and a view that collects the state of a model railway over the records.
-3. **Register it** in `ui/src/protocols/mod.rs`: `mod <name>;` and one entry in `MODULES`. The position in the list is
+3. **Register it** in `ui/src/protocols/mod.rs`: `mod <name>;` and one entry in `MODULES`, both under
+   `#[cfg(feature = "dec-<name>")]`, and the feature in `ui/Cargo.toml` (`dec-<name> = []`, and in the `decoders`
+   list so that it is on by default). The position in the list is
    the position in the Decode menu, after the seven core protocols, which keep the first places.
 4. **Test**: `(cd ui && cargo test)`. Every module is checked automatically: key and name unique, option defaults in
    range, and, when it has demo traffic, that it decodes its own demo without errors (`protocols::tests`). The Decode
@@ -41,6 +43,23 @@ Only `key`, `name`, `bit_time` and `decode` are required. The defaults fit a sin
    that must appear.
 5. **Try it** on the host: `cargo run` in `ui/` (see the README), Decode > Protocol, decoder on. With demo traffic the
    signals come up on their channels by themselves.
+
+## Leaving decoders out of a build
+
+Every module file except `core.rs` is a Cargo feature, `dec-<file>`; all are on by default (`decoders`). A build with
+fewer decoders sets one of two variables for `ui/build.sh` or `boot/build-dev-image.sh`:
+
+```sh
+OOS_DECODERS="usb dcc" ui/build.sh               # only these, besides the core ones
+OOS_DECODERS="" boot/build-dev-image.sh          # the core ones only
+OOS_DECODERS_OFF="avionics vehicle" ui/build.sh  # all but these
+ui/tools/decoder-features.sh list                # the names
+```
+
+With cargo directly: `cargo build --no-default-features --features dec-usb,dec-dcc`. The seven core protocols are
+always in: the hardware trigger types and SCPI name them. A setup that names a decoder the build does not have loads
+with the decoder off and says which line it left out. With fewer decoders, the tests that need every one skip
+themselves; CI builds the core-only set and every optional decoder alone.
 
 ## The view and its memory
 

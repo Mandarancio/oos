@@ -2466,6 +2466,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "decoders"), ignore = "needs every decoder")]
     fn uart_from_the_decoder_settings() {
         use oos_hal::dho::uarttrig::{Cond, ErrKind, Parity, Relation};
         let mut m = Model::default();

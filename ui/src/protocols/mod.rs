@@ -10,33 +10,49 @@
 //! all come from the trait. The decoder itself usually lives in `oos-dsp` (decode + a generator for its tests) and the
 //! module calls it.
 //!
-//! The protocols that existed before this interface are still wired by hand through `model::Proto`; they move here one
-//! by one. A new protocol should come as a module. `docs/protocol-modules.md` walks through writing one, and
-//! `example.rs` (compiled in the tests) uses every hook.
+//! Every decoder is a module. The seven core protocols (`core.rs`: UART, I2C, SPI, CAN, LIN, Parallel, C-PHY) are
+//! always built and keep the first places, since the hardware trigger types and SCPI name them (`Proto::UART` ...).
+//! Every other file is behind a Cargo feature (`dec-<file>`, all on by default), so a build can leave decoders out.
+//! `docs/protocol-modules.md` walks through writing one, and `example.rs` (compiled in the tests) uses every hook.
 
 use crate::model::{BusWhat, Slope};
 use oos_dsp::decode::Packet;
 
+#[cfg(feature = "dec-avionics")]
 mod avionics;
 mod core;
+#[cfg(feature = "dec-dcc")]
 mod dcc;
+#[cfg(feature = "dec-debug")]
 mod debug;
+#[cfg(feature = "dec-dmx512")]
 mod dmx512;
+#[cfg(feature = "dec-i2s")]
 mod i2s;
 #[cfg(test)]
 pub mod example;
+#[cfg(feature = "dec-i3c")]
 mod i3c;
+#[cfg(feature = "dec-linecode")]
 mod linecode;
+#[cfg(feature = "dec-onewire")]
 mod onewire;
+#[cfg(feature = "dec-qspi")]
 mod qspi;
+#[cfg(feature = "dec-serial")]
 mod serial;
+#[cfg(feature = "dec-spdif")]
 mod spdif;
+#[cfg(feature = "dec-usb")]
 mod usb;
+#[cfg(feature = "dec-usbpd")]
 mod usbpd;
+#[cfg(feature = "dec-vehicle")]
 mod vehicle;
 
-/// The registered modules. The order is the order in the Decode menu, after the built-in protocols. Never reuse or
-/// change a module's `key`: saved setups refer to it.
+/// The registered modules. The order is the order in the Decode menu; the core protocols come first, at fixed places.
+/// Never reuse or change a module's `key`: saved setups refer to it. A module behind a feature that is off is missing
+/// from the list, and a setup that names it loads without its decoder.
 pub static MODULES: &[&dyn Protocol] = &[
     // the core decoders at fixed places (`Proto::UART` ...): never move them
     &core::Uart,
@@ -46,27 +62,49 @@ pub static MODULES: &[&dyn Protocol] = &[
     &core::Lin,
     &core::Parallel,
     &core::Cphy,
+    #[cfg(feature = "dec-dmx512")]
     &dmx512::Dmx512,
+    #[cfg(feature = "dec-spdif")]
     &spdif::Spdif,
+    #[cfg(feature = "dec-usbpd")]
     &usbpd::UsbPd,
+    #[cfg(feature = "dec-dcc")]
     &dcc::Dcc,
+    #[cfg(feature = "dec-linecode")]
     &linecode::Manchester,
+    #[cfg(feature = "dec-linecode")]
     &linecode::Mlt3,
+    #[cfg(feature = "dec-serial")]
     &serial::Uart9,
+    #[cfg(feature = "dec-serial")]
     &serial::ModbusRtu,
+    #[cfg(feature = "dec-serial")]
     &serial::ModbusAscii,
+    #[cfg(feature = "dec-onewire")]
     &onewire::OneWire,
+    #[cfg(feature = "dec-onewire")]
     &onewire::Ds2482,
+    #[cfg(feature = "dec-debug")]
     &debug::Swd,
+    #[cfg(feature = "dec-debug")]
     &debug::Jtag,
+    #[cfg(feature = "dec-qspi")]
     &qspi::Qspi,
+    #[cfg(feature = "dec-i3c")]
     &i3c::I3c,
+    #[cfg(feature = "dec-vehicle")]
     &vehicle::CanFd,
+    #[cfg(feature = "dec-vehicle")]
     &vehicle::FlexRay,
+    #[cfg(feature = "dec-vehicle")]
     &vehicle::Sent,
+    #[cfg(feature = "dec-avionics")]
     &avionics::Arinc429,
+    #[cfg(feature = "dec-avionics")]
     &avionics::Mil1553,
+    #[cfg(feature = "dec-i2s")]
     &i2s::I2s,
+    #[cfg(feature = "dec-usb")]
     &usb::Usb,
     #[cfg(test)]
     &example::Example,
@@ -89,6 +127,7 @@ pub enum Row {
     CanRate,
     /// CAN: the line is CAN-H (else CAN-L or a transceiver's RX)
     CanH,
+    #[cfg_attr(not(feature = "decoders"), allow(dead_code))] // for the optional modules
     UsbSpeed,
     CphyRate,
     /// the event table in ASCII
@@ -104,6 +143,7 @@ pub struct Shared {
     pub spi_mode: u8,
     pub can_rate: f64,
     pub canh: bool,
+    #[cfg_attr(not(feature = "decoders"), allow(dead_code))] // for the optional modules
     pub usb_speed: oos_dsp::decode_ext3::UsbSpeed,
     /// 0 = auto
     pub cphy_rate: f64,
@@ -140,8 +180,10 @@ impl Shared {
 }
 
 /// The baud rates of the Decode menu (`decode::BAUDS`), as the choices of a module's option row.
+#[cfg_attr(not(feature = "decoders"), allow(dead_code))] // for the optional modules
 pub const BAUD_NAMES: [&str; 10] = ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200", "460800", "921600"];
-/// The default of a baud row: 115200, as the built-in decoders.
+/// The default of a baud row: 115200, as the UART decoder.
+#[cfg_attr(not(feature = "decoders"), allow(dead_code))] // for the optional modules
 pub const BAUD_DEFAULT: usize = 7;
 
 /// The decoder settings of a setup from before a protocol became a module: what its option rows were kept in.
@@ -255,6 +297,7 @@ pub struct Demo {
 pub type Memory = Option<Box<dyn std::any::Any + Send>>;
 
 /// The memory of a view as the module's own type `T`, made with `T::default()` when it is empty or of another type.
+#[cfg_attr(not(feature = "decoders"), allow(dead_code))] // for the optional modules
 pub fn memory<T: Default + Send + 'static>(m: &mut Memory) -> &mut T {
     if !m.as_ref().is_some_and(|b| b.is::<T>()) {
         *m = Some(Box::new(T::default()));

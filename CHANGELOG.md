@@ -29,6 +29,9 @@ New:
   protocol trigger, the bus timing and the demo traffic come from the module alone; values several protocols use (baud
   rate, bits, parity, SPI mode, CAN rate ...) are shared rows. Saved setups load as before. Choosing a protocol no
   longer changes the sources of roles it doesn't have.
+- Decoders can be left out of a build: every optional decoder is a Cargo feature (`dec-<file>`, all on by default),
+  `OOS_DECODERS="usb dcc"` or `OOS_DECODERS_OFF="avionics"` with ui/build.sh and boot/build-dev-image.sh. The seven
+  core decoders are always in. Without the optional ones the scope binary is 260 KB smaller. Suggested by rdtsc.
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`
