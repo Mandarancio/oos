@@ -337,7 +337,8 @@ def build_on_the_unit(s, o):
 
 @test("a0")
 def log_has_no_panic(s, o):
-    t = s.shell("grep -c -i 'panic\\|segfault\\|oom' /tmp/oos-ui.log; dmesg | grep -c 'Oops:\\|Kernel panic\\|BUG:'")
+    # whole words: "oom" alone matched "zoom" in a setup warning (2026-11-15)
+    t = s.shell("grep -c -i -w 'panic\\|panicked\\|segfault\\|oom\\|out of memory' /tmp/oos-ui.log; dmesg | grep -c 'Oops:\\|Kernel panic\\|BUG:'")
     assert t.split() == ["0", "0"], t
 
 
