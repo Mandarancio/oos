@@ -1322,6 +1322,10 @@ def deep_memory(s, o):
     c = s.loop[0]
     s.gen("SIN", 1e3, 2.0)
     s.w(":TIM:SCAL 0.0002")
+    # RMS on the measurement list: a deep record shown as min/max pairs is measured from a raw read of the screen
+    # window while a shown measurement needs every sample (meas.deep_raw, docs/fork/deep-meas.md)
+    s.w(":MEAS:CLE ALL")
+    s.w(f":MEAS:ITEM VRMS,CHAN{c}")
     rows = []
     for d in ("10000000", "25000000", "50000000", "100000000", "125000000"):
         s.w(f":ACQ:MDEP {d}")
@@ -1332,11 +1336,12 @@ def deep_memory(s, o):
         got = s.stat()["frames"] > a
         # Vpp over every sample of millions at 1.25 GSa/s takes the noise peaks with it (about 2.16 V for 2.04 V of
         # sine on a DHO924S): the RMS (as Vpp of a sine) checks the data, Vpp is only reported
-        v, rms = s.meas("VPP", c, 1), s.meas("VRMS", c, 1)
+        v, rms = s.meas("VPP", c, 1), s.meas("VRMS", c, 5)
         rows.append(f"{int(d) // 1000000} M: {time.time() - t0:.1f} s, {v:.2f} Vpp, {rms:.3f} Vrms")
         assert got, f"no record at {d}: {rows}"
         near(f"RMS as Vpp at {d}", rms * 2 * 2**0.5, 2.0, rel=0.08)
     s.w(":ACQ:MDEP AUTO")
+    s.w(":MEAS:CLE ALL")
     return "; ".join(rows)
 
 

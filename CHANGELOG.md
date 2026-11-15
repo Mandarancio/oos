@@ -99,6 +99,11 @@ New:
 
 Changed:
 
+- Mean, RMS, Std dev and Area of deep records (above 1 M points, shown as min/max pairs) are measured again: the
+  screen window is read raw once in a while (`meas.deep_raw`, now on by default; `meas.deep_raw = off` turns it
+  off). 0.711 Vrms for a 2 Vpp sine at 10 to 125 M on the DHO924S. The reads come less often for a larger window,
+  so they cost about 5 % of the records; a window above 24 MB keeps "not available". Max, Min and Pk-pk come from
+  the pairs until the first raw read.
 - Choosing a decoder protocol on the hardware sets its own parameters only (threshold, baud, bits ...): no channel is
   switched on and the trigger stays. The sources the protocols share stay; a role the old protocol did not have takes
   a channel that is on and no other role uses, or none. The demo keeps the sources and trigger that suit its traffic.
@@ -114,6 +119,11 @@ Changed:
 - `:ACQuire:AVERages` snaps a count the menu does not offer down to the next one (PR #8).
 
 Fixed:
+
+- The first record after a change of settings in a deep record (one frame per batch) could show the older memory of
+  the settings before, e.g. twice the amplitude after the memory depth was changed: it is left out.
+- A measurement of a large record (more than 262 k points) no longer shows "not available" while it is computed in
+  the background: the last value stays until the new one is there.
 
 - Choosing a trigger type changed settings the other types share (found by a new test after eTobey's point in the
   forum): Pulse switched CH4 on and made it the source, Video set CH2 to 0.2 V/div, Setup/Hold switched CH3 on, Nth

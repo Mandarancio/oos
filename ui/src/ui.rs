@@ -10789,6 +10789,8 @@ mod tests {
     #[test]
     fn measurements_on_min_max_pairs_leave_out_the_mean_type() {
         use super::*;
+        // without the raw reads of deepmeas.rs (meas.deep_raw = off)
+        crate::deepmeas::force(Some(false));
         let shared: crate::board::HwShared = Default::default();
         let mut ui = Ui::new(Source::Hw { shared: shared.clone(), seen: 0 });
         ui.m.run = RunState::Run;
@@ -10810,6 +10812,7 @@ mod tests {
             let row = ui.meas_rows().into_iter().find(|r| r.name == Meas::Vavg.name()).map(|r| r.v);
             assert!(row.is_none_or(|x| x.is_nan() == envelope));
         }
+        crate::deepmeas::force(None);
     }
 
     // Break it catches (compress.rs, raw newest frame every RAW_PERIOD): live-compression pair records measured between
@@ -10988,10 +10991,10 @@ mod tests {
                 ui.step(0.02);
             }
         };
-        // before the first raw record: nothing measured on pairs
+        // before the first raw record: no mean-type value on pairs, the maximum from them
         push(1, true, pairs(1.0));
         step(&mut ui);
-        assert!(ui.meas(0, Meas::Vavg).is_nan() && ui.meas(0, Meas::Vmax).is_nan());
+        assert!(ui.meas(0, Meas::Vavg).is_nan() && (ui.meas(0, Meas::Vmax) - 1.0).abs() < 0.02);
         push(2, false, raw.clone());
         step(&mut ui);
         let avg = ui.meas(0, Meas::Vavg);

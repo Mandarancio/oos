@@ -1,7 +1,7 @@
 # Mean-type measurements of deep records from raw samples
 
-Branch `feat/deep-meas`, on top of `fix/envelope-stats`. Opt-in: `meas.deep_raw = on` in /oos/system.conf, or
-`OOS_DEEP_RAW=1` for oos-ui alone. Off until the procedure below has passed on the unit.
+On by default since the unit test of 2026-11-15 (below); `meas.deep_raw = off` in /oos/system.conf, or
+`OOS_DEEP_RAW=0` for oos-ui alone, turns it off.
 
 ## Problem
 
@@ -94,6 +94,30 @@ Probe on the 1 kHz compensation output, CH1, 1 V/div. Baseline first without the
 7. Peak mode, roll, zoom: no raw deep reads (log), as before.
 
 Record the results here and in `docs/fork/unit-dho804.md`.
+
+## Result on the DHO924S (2026-11-15)
+
+1 kHz, 2 Vpp sine from the generator on CH1, 1 V/div, VRMS on the measurement list.
+
+- Values: 10, 25, 50, 100 and 125 M at 200 us/div all give 0.711 Vrms (`deep_memory` in tools/device-test.py, three
+  runs), as at depth Auto. Max and Pk-pk come from the pairs before the first raw record.
+- Found and fixed on the way:
+  - The first record after a change of settings, in a batch of one frame (deep records), could be the older memory
+    of the settings before: the whole screen window of a 10 M record was the 4 Vpp of the depth-Auto records before
+    it (twice the RMS). `hw.rs` leaves that one record out (never two in a row; not in SINGLE or hardware average).
+  - While the worker measured a raw window (more than 262 k points) the row showed "not available" for that time,
+    once a raw read: the last value now stays until the new one is there.
+- Rate: a raw read costs about 3 % of the records per MiB read once a second. The period grows with the window
+  (`deepmeas::period`: 1 s per 2 MiB), so the cost stays near 5 %:
+
+  | channels | depth, time base | records/s off / on | fps off / on |
+  |---|---|---|---|
+  | 1 | 10 M, 1 ms/div | 4.85 / 4.59 | 27.5 / 26.2 |
+  | 1 | 10 M, 200 us/div | 3.82 / 3.65 | 29.1 / 28.5 |
+  | 2 | 10 M, 200 us/div | 4.65 / 4.59 | 29.7 / 29.0 |
+
+- Budget: windows above `MAX_BYTES` (1 channel at 25 M and 1 ms/div, 2 channels at 10 M and 1 ms/div) keep the
+  pair measurement: mean-type not available, no raw reads, the rate unchanged.
 
 ## Risks
 

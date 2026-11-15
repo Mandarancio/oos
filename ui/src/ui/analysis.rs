@@ -420,6 +420,11 @@ impl Ui {
         for channel in 0..NCH {
             let full = self.channel_needs_full_analysis(channel);
             let analysis = self.channel_measurement(channel, full).map(|(analysis, _)| analysis);
+            // a large record measured in the background: the values of the last one stay until the worker answers (a
+            // deep record measured raw once a second showed "not available" for that time, unit 2026-11-15)
+            if analysis.is_none() && self.m.ch[channel].on && self.measurement_computing(WaveId::Ch(channel)) && self.ana[channel].valid {
+                continue;
+            }
             let basic = self.native_channel_basic(channel);
             let stats = analysis.as_ref().map(|a| Stats { valid: a.valid, vmin: a.vmin as f32, vmax: a.vmax as f32,
                 vavg: a.avg as f32, vrms: a.rms as f32, top: a.top as f32, base: a.base as f32,

@@ -145,6 +145,19 @@ impl Ui {
         stat.min = stat.min.min(value); stat.max = stat.max.max(value);
     }
 
+    /// While a large record of channel `c` is measured in the background: the value of the last record measured
+    /// (`measure_channel_sources` keeps it), so a deep record measured raw once a second does not show "not
+    /// available" for the time the worker takes (unit 2026-11-15). NaN when nothing is computing.
+    fn meas_while_computing(&self, c: usize, k: Meas) -> f64 {
+        if !self.m.ch[c].on || !self.measurement_computing(WaveId::Ch(c)) || matches!(k, Meas::TVmax | Meas::TVmin) {
+            return f64::NAN;
+        }
+        if self.meas_env[c] && crate::framestats::needs_samples(k) {
+            return f64::NAN;
+        }
+        self.meas_of(&self.ana[c], k)
+    }
+
     /// Measurement `k` of a channel or a reference. A channel that is off, or a ref with no samples, is NaN.
     pub fn meas_at(&self, id: WaveId, k: Meas) -> f64 {
         if let WaveId::Ch(channel) = id {
@@ -155,19 +168,24 @@ impl Ui {
                 // that of the last raw record (`measure_rec` in the step's hold) between the pair records
                 let shown = self.last[0].as_ref().and_then(|r| r.raw.as_ref()).map(|r| &*r.frame);
                 if crate::deepmeas::hold(&self.m, shown) || crate::compress::hold(&self.m, shown) {
-                    return self.ana_get(channel, k);
+                    // before the first raw record Max, Min and Pk-pk still come from the pairs
+                    let held = self.ana_get(channel, k);
+                    if held.is_finite() || crate::framestats::needs_samples(k) {
+                        return held;
+                    }
                 }
                 if crate::framestats::needs_samples(k) {
                     return f64::NAN;
                 }
             }
-            if Self::channel_basic_kind(k) { return self.channel_basic_reading(channel, k).unwrap_or(f64::NAN); }
+            if Self::channel_basic_kind(k) { return self.channel_basic_reading(channel, k).unwrap_or_else(|| self.meas_while_computing(channel, k)); }
         }
         match self.meas_analysis(id) {
             Some((a, t0)) => {
                 let value = self.cached_measurement_reading(id, k, &a).unwrap_or_else(|| self.meas_of(&a, k));
                 if matches!(k, Meas::TVmax | Meas::TVmin) { t0 + value } else { value }
             }
+            None if matches!(id, WaveId::Ch(_)) => self.meas_while_computing(id.ch().unwrap_or(0), k),
             None => f64::NAN,
         }
     }
