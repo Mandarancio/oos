@@ -62,7 +62,8 @@ New:
 - Trigger level: no mark with AC or LF reject coupling; with DC a dashed line for 1.5 s after every change.
 - From PR #7 (opt-in through `/oos/system.conf` unless noted): hardware segments with trigger time stamps (Acquire >
   HW segments), hardware averaging (Acquire > HW average), the trigger status from the SCU (default on), auto set-up
-  levels from the FPGA measure unit (default on), hardware DVM, hardware mask and zone tests, UART/SPI/I2C hardware
+  levels from the FPGA measure unit (`autoset.levels = unit`; it answered with the levels of an earlier signal on a
+  DHO924S, so Auto missed a 5 MHz sine of 0.2 Vpp), hardware DVM, hardware mask and zone tests, UART/SPI/I2C hardware
   triggers (Trigger > Bus), System > AUX out (trigger out, pass/fail), live min/max compression in the FPGA, deep-memory
   measurements from raw reads, an ADC core offset trim, `:CHANnel<n>:VERNier`, auto noise reject, batch pipeline,
   core placement, arming ahead, MSI for the DMA driver.
