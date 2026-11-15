@@ -1117,6 +1117,9 @@ pub fn batch_plan(s: &Settings, p: &hz::Params) -> Settings {
     b
 }
 
+/// Longest record whose first batch after a change of settings is left out (`read_with` in `spawn`), in seconds.
+const FIRST_LEFT_MAX_S: f64 = 0.05;
+
 /// Whether frame 0 of a batch of several frames is left out (issue #5): on unless `acq.frame0 = keep` in
 /// system.conf.
 fn frame0_drop() -> bool {
@@ -2120,10 +2123,13 @@ pub fn spawn(app_mask: u32, program_afe: bool, cal_dir: String, start_up: Option
                     // FPGA records before the arm (issue #5), and the first after a change can still be the older
                     // memory of the old settings (unit 2026-11-15: the whole screen window of a 10 M record was the
                     // 4 Vpp of the depth-Auto records before it). It is left out, never two in a row; not in SINGLE
-                    // (its one record is the answer) and not in hardware average
+                    // (its one record is the answer), not in hardware average, and only for a record shorter than
+                    // `FIRST_LEFT_MAX_S`: at slow time bases the next record would keep the screen waiting as long
+                    // again (1.25 s at 50 ms/div)
                     let first = read_with.as_ref() != Some(&b);
                     read_with = Some(b.clone());
-                    if first && !first_left && frames.len() == 1 && avail == 1 && !b.single && after.is_none() && frame0_drop() {
+                    let short = (p.memsel as f64) < FIRST_LEFT_MAX_S * p.rate as f64;
+                    if first && !first_left && short && frames.len() == 1 && avail == 1 && !b.single && after.is_none() && frame0_drop() {
                         frames.clear();
                         first_left = true;
                         // the deep window read of this batch went with it: the next batch reads one at once
