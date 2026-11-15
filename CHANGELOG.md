@@ -44,6 +44,8 @@ New:
   > Features, the view bar and its menu, SCPI `:VIEW`, the `view` of setups, which record a page needs, computing and
   drawing ask one registry instead of eight lists. Every page is checked the same way by the tests; the pages look
   and compute as before, pixel for pixel.
+- Architecture decision records in `docs/adr`, by category (code, ui-ux, hardware, system, process), with a template
+  and the first fifteen records of decisions already taken.
 - The screens' symbols ψ, —, ≠, θ, α, β and μ have glyphs (they showed as '?', e.g. μ before the mean in the
   statistics card); the existing glyphs of the atlases are unchanged.
 - Host layout scripts (ui/tests) open menus and set values by name (`menu`, `set`, `do`, and new: `close`, `do <tile>`

@@ -41,6 +41,8 @@ Tests that need the calibration files of a real unit skip themselves without the
 [README](README.md). [docs/architecture.md](docs/architecture.md) is the place to start reading.
 
 Text and code comments are in English. Changes to the hardware knowledge go into `docs/`, in the same pull request.
+A change that decides something others will build on (a structure, a rule of the screen, a way to treat the hardware)
+comes with a decision record: [docs/adr](docs/adr/README.md).
 
 ## Licence
 
