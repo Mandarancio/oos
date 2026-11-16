@@ -24,5 +24,8 @@
 pub mod acq;
 pub mod afe;
 pub mod avg;
+pub mod display;
+pub mod dvm;
 pub mod series;
 pub mod trigger;
+pub mod zone;
