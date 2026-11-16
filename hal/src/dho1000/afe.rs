@@ -186,6 +186,32 @@ pub fn offset_dac(r: &Range, volts: f64) -> u16 {
     }
 }
 
+/// Input couplings in menu order (datasheet: DC, AC, GND). There is no 50 Ohm path: the input
+/// impedance is 1 MOhm only, so `Coupling::Dc50` must not be offered for this board.
+pub const COUPLINGS: [&str; 3] = ["DC", "AC", "GND"];
+
+/// Vertical sensitivity range in V/div (datasheet: 500 uV/div .. 10 V/div).
+pub const VSCALE_MIN_DIV: f64 = 500e-6;
+pub const VSCALE_MAX_DIV: f64 = 10.0;
+
+/// The fine V/div steps of the front end in nV: the same 1-2-5 ladder as the DHO800/DHO900
+/// (`crate::dho::afe::scale_ladder`), bounded by this series' 500 uV .. 10 V. The AFE snaps to the
+/// nearest entry of `RANGES` (`range_for`), so every step here is a UI value, not a range.
+pub fn scale_ladder() -> Vec<i64> {
+    let mut v = Vec::with_capacity(801);
+    for d in 0..5 {
+        let b = 100_000 * 10i64.pow(d);
+        v.extend((0..50).map(|k| b + k * b / 50));
+        v.extend((0..60).map(|k| 2 * b + k * b / 20));
+        v.extend((0..50).map(|k| 5 * b + k * b / 10));
+    }
+    v.push(10_000_000_000);
+    let lo = (VSCALE_MIN_DIV * 1e9) as i64;
+    let hi = (VSCALE_MAX_DIV * 1e9) as i64;
+    v.retain(|&x| (lo..=hi).contains(&x));
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +233,31 @@ mod tests {
         assert_eq!(range_for(1.4).vdiv, 1.0);
         assert_eq!(range_for(1.6).vdiv, 2.0);
         assert_eq!(range_for(100.0).vdiv, 10.0);
+    }
+
+    #[test]
+    fn ladder_is_bounded_ascending_and_snaps() {
+        let l = scale_ladder();
+        assert!(l.len() > 600, "ladder has {} steps", l.len());
+        assert!(l.windows(2).all(|w| w[0] < w[1]));
+        let lo = (VSCALE_MIN_DIV * 1e9) as i64;
+        let hi = (VSCALE_MAX_DIV * 1e9) as i64;
+        for &nv in &l {
+            assert!(nv >= lo && nv <= hi, "{nv} nV outside the range");
+            let r = range_for(nv as f64 / 1e9);
+            assert!(r.vdiv >= VSCALE_MIN_DIV && r.vdiv <= VSCALE_MAX_DIV);
+        }
+        assert_eq!(l[0], lo, "first step is the 500 uV/div limit");
+        assert_eq!(*l.last().unwrap(), hi, "last step is 10 V/div");
+    }
+
+    #[test]
+    fn couplings_match_the_datasheet() {
+        assert_eq!(COUPLINGS, ["DC", "AC", "GND"]);
+        assert!(
+            !COUPLINGS.contains(&"DC50"),
+            "no 50 ohm path on this series"
+        );
     }
 
     #[test]

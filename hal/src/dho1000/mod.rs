@@ -23,3 +23,4 @@
 
 pub mod acq;
 pub mod afe;
+pub mod series;
