@@ -191,6 +191,13 @@ impl Platform {
                         let m = v.model.unwrap_or_default();
                         if (ACTIVE.family)(&m) {
                             p.warnings.push(format!("vendor.bin: model {:?} is not in the model table: {} assumed", m, ACTIVE.assumed_model));
+                        } else if let Some((c, l)) = other_family(&m) {
+                            // a family OOS knows but does not drive yet: report what the unit is
+                            p.warnings.push(format!("vendor.bin: model {:?} is a {} model: identified ({} ch, {} MHz), but OOS does not drive this board yet (docs/protocols/dho1000.md)", m, c.series, c.channels, c.rated_bw_mhz));
+                            p.caps = c;
+                            p.limits = l;
+                            p.source = Source::Vendor;
+                            p.foreign = Some(m);
                         } else {
                             p.warnings.push(format!(
                                 "vendor.bin: model {:?} is not a {}, another board: OOS does not drive its hardware (docs/porting.md)",
@@ -313,6 +320,10 @@ impl Platform {
             Source::Assumed => "  (assumed)",
         };
         if let Some(m) = &self.foreign {
+            if self.caps.name.eq_ignore_ascii_case(m) {
+                // identified from its own family table (DHO1000): the caps are the unit's, the hardware stays off
+                return format!("{}  {} ch  {} MHz  SN {}  (identified, hardware not driven yet)", m, self.caps.channels, self.caps.rated_bw_mhz, self.serial.as_deref().unwrap_or("-"));
+            }
             return format!("{}  SN {}  (another board: hardware not driven)", m, self.serial.as_deref().unwrap_or("-"));
         }
         format!("{}  SN {}{}", self.caps.name, self.serial.as_deref().unwrap_or("-"), src)
@@ -339,6 +350,16 @@ impl Platform {
     pub fn drives_hardware(&self) -> bool {
         self.foreign.is_none()
     }
+}
+
+/// Caps and limits of a family OOS knows but does not drive yet (docs/protocols/dho1000.md): the model is identified
+/// from its own table instead of being reported as an unknown board, but no hardware command is allowed for it.
+/// Returns `None` for a name outside every known family.
+fn other_family(name: &str) -> Option<(Caps, Limits)> {
+    crate::dho1000::series::caps(name).map(|c| {
+        let l = crate::dho1000::series::limits(c.channels);
+        (c, l)
+    })
 }
 
 /// The `key = value` lines of a file in the limits format: (line number, key, value); a line without `=` is a warning.
@@ -689,6 +710,38 @@ mod tests {
         // no or an unreadable vendor file: as before, DHO924S assumed
         assert!(Platform::build(None, None, None).drives_hardware());
         assert!(Platform::build(Some(&[1, 2, 3, 4, 5, 6, 7, 8]), None, None).drives_hardware());
+    }
+
+    #[test]
+    fn dho1000_is_identified_but_not_driven() {
+        let f = encode_vendor(&[(5, "DHO1204"), (7, "X1234567")]);
+        let p = Platform::build(Some(&f), None, None);
+        assert_eq!(p.foreign.as_deref(), Some("DHO1204"));
+        assert!(!p.drives_hardware(), "a DHO1000 is still not driven");
+        assert_eq!((p.caps.name.as_str(), p.caps.channels, p.caps.rated_bw_mhz), ("DHO1204", 4, 200));
+        assert!(!p.caps.la && !p.caps.has_gen() && !p.caps.ext_trig);
+        // the limits are the DHO1000 ones, not the DHO800/DHO900 standard
+        assert_eq!((p.limits.srate(1), p.limits.srate(4)), (2.0e9, 0.5e9));
+        assert_eq!(p.limits.mem(4, false), 12_500_000);
+        let id = p.ident();
+        assert!(id.contains("4 ch") && id.contains("200 MHz") && id.contains("not driven"), "{id}");
+        assert!(p.warnings.iter().any(|w| w.contains("identified")), "{:?}", p.warnings);
+
+        // the "2" model of a pair is the 2-channel one: it keeps its EXT input and memory
+        let p = Platform::build(Some(&encode_vendor(&[(5, "DHO1072")])), None, None);
+        assert_eq!((p.caps.channels, p.caps.rated_bw_mhz, p.caps.ext_trig), (2, 70, true));
+        assert_eq!(p.limits.srate(2), 1.0e9);
+        assert_eq!(p.limits.mem(2, false), 25_000_000);
+
+        // the limits file cannot turn it into a driven board either
+        let p = Platform::build(Some(&encode_vendor(&[(5, "DHO1102")])), Some("channels = 4\n"), None);
+        assert!(!p.drives_hardware());
+        assert_eq!(p.caps.rated_bw_mhz, 100);
+
+        // a name outside every known family stays an unknown board with the assumed caps
+        let p = Platform::build(Some(&encode_vendor(&[(5, "MHO934")])), None, None);
+        assert_eq!(p.caps.name, ACTIVE.assumed_model, "unknown board keeps the assumed model name");
+        assert!(!p.drives_hardware());
     }
 
     #[test]

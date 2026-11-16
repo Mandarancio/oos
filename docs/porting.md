@@ -54,11 +54,17 @@ every part of the interface still missing. `oos-fpgad` is a DHO800/DHO900 tool a
 
 ## DHO1000 series
 
-Bring-up measurements for the DHO1000 (DHO1074/DHO1104/DHO1204) are in
+Bring-up measurements for the DHO1000 (DHO1000/DHO1072..DHO1204) are in
 [protocols/dho1000.md](protocols/dho1000.md): same board family, from-scratch acquisition init,
-batch and roll streaming, the front-end range table, and what is still missing. The measured parts
-are seeded in `hal/src/dho1000/` (`acq`, `afe`, host tests) but are **not** wired to hardware: the
-family gate still treats a DHO10xx as another board.
+batch and roll streaming, the front-end range table, and what is still missing. The measured and
+reconstructed parts are in `hal/src/dho1000/` (`acq`, `afe`, `avg`, `display`, `dvm`, `series`,
+`trigger`, `zone`, host tests).
+
+A unit whose `vendor.bin` names a DHO1000 model is **identified**: the model table and the rated
+limits of that series apply, the ident line shows channels and bandwidth, and a warning says the
+board is not driven yet (`model::other_family`). Nothing reaches the hardware: `drives_hardware()`
+stays false while `foreign` is set, and neither the limits file nor `--model` changes that. Driving
+it needs the on-unit validation of the reconstructed sequences.
 
 ## What does not carry over
 
