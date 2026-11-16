@@ -20,6 +20,8 @@ pub mod update;
 pub mod wlan;
 
 pub mod dho;
+/// DHO1000 series: measured seed for a port (docs/protocols/dho1000.md); not wired to hardware.
+pub mod dho1000;
 
 /// zlib / IEEE 802.3 CRC32.
 pub fn crc32(d: &[u8]) -> u32 {
