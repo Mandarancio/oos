@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(p.foreign.as_deref(), Some("DHO1204"));
         assert!(!p.drives_hardware(), "a DHO1000 is still not driven");
         assert_eq!((p.caps.name.as_str(), p.caps.channels, p.caps.rated_bw_mhz), ("DHO1204", 4, 200));
-        assert!(!p.caps.la && !p.caps.has_gen() && !p.caps.ext_trig);
+        assert!(!p.caps.la && !p.caps.has_gen() && p.caps.ext_trig, "every model has EXT");
         // the limits are the DHO1000 ones, not the DHO800/DHO900 standard
         assert_eq!((p.limits.srate(1), p.limits.srate(4)), (2.0e9, 0.5e9));
         assert_eq!(p.limits.mem(4, false), 12_500_000);

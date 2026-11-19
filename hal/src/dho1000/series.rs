@@ -48,7 +48,7 @@ pub fn caps(name: &str) -> Option<Caps> {
         bw_code: code,
         la: false,
         generators: 0,
-        ext_trig: channels == 2,
+        ext_trig: true,
         edu: false,
     })
 }
@@ -58,6 +58,10 @@ pub fn caps(name: &str) -> Option<Caps> {
 /// Sampling: 2 GSa/s with one channel on, 1 GSa/s with two; a 4-channel model drops to 500 MSa/s
 /// with all four on. Memory (standard): 50 Mpts / 25 Mpts / 12.5 Mpts for 1 / 2 / 3-4 channels on,
 /// so a 2-channel model keeps 25 Mpts with both on. The optional 100 Mpts is not assumed.
+/// Measured on the unit (sidecar notes): every model has the EXT input ("2 + EXT | 4 + EXT" in
+/// the datasheet), the memory depths the stock software offers are 1M/10M/25M/50M (a request for
+/// 20M silently becomes 10M), and with all four channels on the unit clamps to 10 Mpts, not the
+/// datasheet's 12.5; the rated values stand, the measured ones are what the stock software does.
 /// There is no logic analyser and no generator on this series: the `mem_la` columns repeat the
 /// analog ones and the generator maxima are zero. `adc_clock_hz` is the rated 2 GSa/s ceiling,
 /// **not** measured: the sample clock chip has not been identified on this board.
