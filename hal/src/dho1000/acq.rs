@@ -117,12 +117,22 @@ pub fn roll_start(sh: &mut Shadow, mask: u8) -> Vec<(u32, u32)> {
 
 /// Roll stream rate in samples/s for a record depth and a time base, from the measurements on the
 /// unit with a 1 Mpts record: `depth / (100 * seconds_per_div)`, i.e. 20 kSa/s at 0.5 s/div and
-/// 200 kSa/s at 0.05. The time base also sets the record window: a time base that implies a rate
-/// the record cannot hold leaves 0x4010/0x4014/0x4018 degenerate and the stream stops (measured with
-/// a 100 kpts record at 1 MSa/s); that combination is not guarded here.
+/// 200 kSa/s at 0.05.
 pub fn roll_rate(depth: u32, s_per_div: f64) -> f64 {
     depth as f64 / (100.0 * s_per_div)
 }
+
+/// A time base that implies a rate the record window cannot hold leaves the play positions
+/// (`0x4010/0x4014/0x4018`) degenerate and the stream stops — measured with a 100 kpts record at
+/// 1 MSa/s; the sidecar's roll drainer clamps shallow records to at least 1 Mpts and the measured
+/// roll ceiling is 200 kSa/s (0.05 s/div at 1 Mpts). This is that guard.
+pub fn roll_window_ok(depth: u32, s_per_div: f64) -> bool {
+    depth >= 1_000_000 && roll_rate(depth, s_per_div) <= 200_000.0
+}
+
+/// Changing the channel mask while roll is running freezes the stream (measured app-free): the
+/// sequencer re-arm does not survive it. A mask change needs a full stop and `roll_start` again.
+pub const MASK_CHANGE_NEEDS_RESTART: bool = true;
 
 #[cfg(test)]
 mod tests {
@@ -185,5 +195,16 @@ mod tests {
         assert!(near(roll_rate(1_000_000, 0.05), 200_000.0));
         // slower time bases are slower streams, never faster
         assert!(roll_rate(1_000_000, 1.0) < roll_rate(1_000_000, 0.5));
+    }
+
+    #[test]
+    fn roll_window_guard_matches_the_measured_limits() {
+        // the verified combination: 1 Mpts from 0.05 s/div up
+        assert!(roll_window_ok(1_000_000, 0.05));
+        assert!(roll_window_ok(1_000_000, 1.0));
+        // the degenerate measurement: 100 kpts
+        assert!(!roll_window_ok(100_000, 1.0), "below the 1 Mpts floor");
+        // faster than the measured ceiling
+        assert!(!roll_window_ok(25_000_000, 0.05), "250 kSa/s is past the ceiling");
     }
 }
