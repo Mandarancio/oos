@@ -21,11 +21,16 @@
 //! bitstream, the ADC/lane set-up, the sample-clock chip and its tables, trigger and LA blocks,
 //! generator, front panel, and the calibration files in `/rigol/data`.
 
+/// One register write: (BAR1 offset, value). The builders return these; applying them is the bus's
+/// job, as in `crate::dho`.
+pub type Write = (u32, u32);
+
 pub mod acq;
 pub mod afe;
 pub mod avg;
 pub mod display;
 pub mod dvm;
 pub mod series;
+pub mod serialtrig;
 pub mod trigger;
 pub mod zone;
