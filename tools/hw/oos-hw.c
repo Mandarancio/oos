@@ -385,6 +385,73 @@ static int adc_meas(int sel) { // ADC measure unit: mean of a core
     return 0;
 }
 
+// ---- generic sequence runner (the DHO1000 port's register sequences come from oos_hal) -------------
+//   seq <file>   lines: w <off> <val> | r <off> [n] | poll <off> <mask> <want> <ms> | sleep <ms>
+//                        | c2h <bytes>
+static int seq_run(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) { perror(path); return 1; }
+    volatile uint32_t *b = NULL;
+    char line[256];
+    int writes = 0, reads = 0;
+    while (fgets(line, sizeof line, f)) {
+        char cmd[16];
+        unsigned off, val, n, mask, want, ms;
+        if (line[0] == '#' || line[0] == '\n') continue;
+        if (sscanf(line, "%15s", cmd) != 1) continue;
+        if (!strcmp(cmd, "w") && sscanf(line, "%*s %i %i", &off, &val) == 2) {
+            if (off % 4 || off < 0x1000 || off >= 0x5000) { fprintf(stderr, "refusing 0x%x\n", off); continue; }
+            if (!b) b = bar(1);
+            b[off >> 2] = val;
+            writes++;
+        } else if (!strcmp(cmd, "r") && sscanf(line, "%*s %i", &off) >= 1) {
+            n = 1; sscanf(line, "%*s %*i %i", &n);
+            if (!n) n = 1;
+            if (!b) b = bar(0);
+            for (unsigned i = 0; i < n; i++) printf("0x%04x = 0x%08x\n", off + 4 * i, b[(off >> 2) + i]);
+            reads++;
+        } else if (!strcmp(cmd, "poll") && sscanf(line, "%*s %i %i %i %i", &off, &mask, &want, &ms) == 4) {
+            if (!b) b = bar(0);
+            struct timespec t0, t;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            int ok = 0;
+            for (;;) {
+                uint32_t v = b[off >> 2];
+                if ((v & mask) == want) { ok = 1; break; }
+                clock_gettime(CLOCK_MONOTONIC, &t);
+                long el = (t.tv_sec - t0.tv_sec) * 1000 + (t.tv_nsec - t0.tv_nsec) / 1000000;
+                if (el >= (long)ms) break;
+                usleep(100);
+            }
+            printf("poll 0x%04x mask 0x%08x == 0x%08x -> %s after %ums\n", off, mask, want,
+                   ok ? "ok" : "TIMEOUT", ms);
+        } else if (!strcmp(cmd, "sleep") && sscanf(line, "%*s %i", &ms) == 1) {
+            usleep(ms * 1000);
+        } else if (!strcmp(cmd, "c2h") && sscanf(line, "%*s %i", &n) == 1) {
+            int fd = open("/dev/xdma0_c2h_0", O_RDONLY);
+            if (fd < 0) { perror("open c2h"); fclose(f); return 1; }
+            static uint8_t buf[1 << 16];
+            unsigned long long got = 0;
+            struct timespec t0, t;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            while (got < n) {
+                ssize_t r = read(fd, buf, sizeof buf);
+                if (r <= 0) break;
+                got += (unsigned long long)r;
+            }
+            clock_gettime(CLOCK_MONOTONIC, &t);
+            double sec = (t.tv_sec - t0.tv_sec) + (t.tv_nsec - t0.tv_nsec) / 1e9;
+            printf("c2h %llu bytes in %.3fs = %.2f MB/s\n", got, sec, got / sec / 1e6);
+            close(fd);
+        } else {
+            fprintf(stderr, "seq: bad line: %s", line);
+        }
+    }
+    fclose(f);
+    printf("seq done: %d writes, %d reads\n", writes, reads);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: oos-hw fpga-boot [addr] | pll-init | rd <off> [count] | wr <off> <val>\n"); return 2; }
     if (!strcmp(argv[1], "pll-init"))
@@ -412,8 +479,22 @@ int main(int argc, char **argv) {
             if (ch < 0 || ch > 3) return 2;
             return afe_init(ch);
         }
-        fprintf(stderr, "afe-rd <ch> <reg> [n] | afe-init <ch|all> [-q]\n");
+        fprintf(stderr, "afe-rd <ch> <reg> [n] | afe-init <ch|all> [-q]\n"
+                        "seq <file> | c2h <bytes>\n");
         return 2;
+    }
+    if (!strcmp(argv[1], "seq") && argc > 2)
+        return seq_run(argv[2]);
+    if (!strcmp(argv[1], "c2h") && argc > 2) {
+        char tmp[64];
+        snprintf(tmp, sizeof tmp, "c2h %u\n", (unsigned)strtoul(argv[2], NULL, 0));
+        FILE *f = fopen("/tmp/.oos-hw-c2h", "w");
+        if (!f) return 1;
+        fputs(tmp, f);
+        fclose(f);
+        int rc = seq_run("/tmp/.oos-hw-c2h");
+        unlink("/tmp/.oos-hw-c2h");
+        return rc;
     }
     if (!strcmp(argv[1], "fpga-boot"))
         return fpga_boot(argc > 2 ? strtoul(argv[2], NULL, 0) : 0x400000);
